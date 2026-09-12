@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hard Launcher</title>
+    <link rel="icon" type="image/png" href="./favicon.png" />
+    <!-- Adelanta el handshake (DNS + TLS) con los hosts de skins antes de
+         que se dispare el primer pedido real (el prefetch de refreshAccounts
+         en store.js), para que esa primera carga -la que se nota al abrir
+         el selector de cuentas recién iniciado el launcher- no pague todo
+         ese costo de conexión además de la descarga de la imagen. -->
+    <link rel="preconnect" href="https://crafatar.com" crossorigin />
+    <link rel="preconnect" href="https://textures.minecraft.net" crossorigin />
+    <link rel="preconnect" href="https://minecraft.ely.by" crossorigin />
+    <script type="module" crossorigin src="./assets/index-YcqspWJ0.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-D0E__lMJ.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

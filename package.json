@@ -1,6 +1,6 @@
 {
   "name": "hard-launcher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Launcher de mods premium y no premium.",
   "main": "electron/main.js",
   "author": "hardblast",
@@ -44,13 +44,14 @@
     "productName": "Hard Launcher",
     "files": [
       "electron/**/*",
-      "dist/**/*"
+      "dist/**/*",
+      "src/**/*"
     ],
     "directories": {
       "output": "release",
       "buildResources": "build"
     },
-    "icon": "build/icon.png",
+    "icon": "build/icon.ico",
     "win": {
       "target": [
         {
@@ -58,7 +59,7 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "artifactName": "HardLauncher-Setup-${version}.exe"
     },
     "nsis": {
