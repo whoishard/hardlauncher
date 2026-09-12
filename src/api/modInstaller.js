@@ -324,4 +324,12 @@ async function installModpackFromVersion(versionData, instanceName, onProgress) 
   }
 }
 
-module.exports = { installProjectVersion, addLocalFile, toggleContent, removeContent, installModpack, installModpackFromVersion };
+module.exports = {
+  installProjectVersion,
+  addLocalFile,
+  toggleContent,
+  removeContent,
+  installModpack,
+  installModpackFromVersion,
+  folderForType,
+};

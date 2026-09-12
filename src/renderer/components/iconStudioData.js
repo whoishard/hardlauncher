@@ -4,6 +4,15 @@
 // pequeño set de formas geométricas simples para ese cubito (no ítems ni
 // criaturas — ver comentario de ICON_SHAPES más abajo), más las utilidades
 // para redimensionar una imagen propia subida por el usuario.
+//
+// La paleta y las formas en sí viven en src/shared/iconPalette.json (datos
+// planos, sin código de navegador) para poder reusarse tal cual desde
+// electron/../src/core/randomInstanceIcon.js, que corre en el proceso
+// principal (sin DOM/canvas) y genera el ícono default aleatorio de una
+// instancia nueva con exactamente esta misma paleta — así el "azar" del
+// ícono default y el del botón "Aleatorio" de este estudio salen siempre
+// del mismo universo de combinaciones, nunca se desincronizan.
+import iconPalette from '../../shared/iconPalette.json';
 
 // Formas para el "cubito": a diferencia del set de símbolos que se probó y
 // se sacó (ítems/bloques/criaturas estilo Minecraft), esto es un puñado de
@@ -14,32 +23,7 @@
 // una es un único path plano (sin bisel) sobre un lienzo de 16x16, se
 // dibuja en blanco semitransparente sobre el fondo elegido y con la misma
 // sombrita apoyada que el resto de los íconos generados acá.
-export const ICON_SHAPES = [
-  {
-    id: 'cube',
-    label: 'Cubo',
-    faces: [
-      { d: 'M8 3 L13 5.2 L8 7.4 L3 5.2 Z', opacity: 0.95 },
-      { d: 'M3 5.2 L8 7.4 L8 13 L3 10.8 Z', opacity: 0.78 },
-      { d: 'M13 5.2 L8 7.4 L8 13 L13 10.8 Z', opacity: 0.62 },
-    ],
-  },
-  { id: 'diamond', label: 'Rombo', d: 'M8 2 L14 8 L8 14 L2 8 Z' },
-  { id: 'hexagon', label: 'Hexágono', d: 'M8 1.5 L13.5 4.75 L13.5 11.25 L8 14.5 L2.5 11.25 L2.5 4.75 Z' },
-  { id: 'circle', label: 'Círculo', d: 'M13.2 8a5.2 5.2 0 11-10.4 0 5.2 5.2 0 0110.4 0z' },
-  {
-    id: 'star',
-    label: 'Estrella',
-    d: 'M8 1.8 L9.53 5.9 L13.9 6.08 L10.47 8.8 L11.65 13.02 L8 10.6 L4.36 13.02 L5.53 8.8 L2.1 6.08 L6.47 5.9 Z',
-  },
-  { id: 'bolt', label: 'Rayo', d: 'M9 1 L4 9 L7.2 9 L6 15 L12 6.5 L8.4 6.5 Z' },
-  {
-    id: 'heart',
-    label: 'Corazón',
-    d: 'M8 13.5 C4 10 1.5 7.7 1.5 5.3 C1.5 3.2 3.1 2 4.8 2 C6.2 2 7.3 2.9 8 4 C8.7 2.9 9.8 2 11.2 2 C12.9 2 14.5 3.2 14.5 5.3 C14.5 7.7 12 10 8 13.5 Z',
-  },
-  { id: 'shield', label: 'Escudo', d: 'M8 1.5 L13.5 3.3 V8.2 C13.5 11.6 11.2 13.8 8 14.8 C4.8 13.8 2.5 11.6 2.5 8.2 V3.3 Z' },
-];
+export const ICON_SHAPES = iconPalette.shapes;
 
 export function getShape(id) {
   return ICON_SHAPES.find((s) => s.id === id) || null;
@@ -53,26 +37,7 @@ export const SHADOW_ELLIPSE = { cx: 8, cy: 14.6, rx: 5.4, ry: 1.15, opacity: 0.2
 // Paleta de fondos: gama amplia (acento del launcher + variedad tipo
 // "tintes" de Minecraft) para que cada instancia se distinga bien en la
 // grilla de instancias.
-export const BACKGROUND_SWATCHES = [
-  '#7c3aed',
-  '#a78bfa',
-  '#2563eb',
-  '#0ea5e9',
-  '#0d9488',
-  '#16a34a',
-  '#65a30d',
-  '#ca8a04',
-  '#d97706',
-  '#ea580c',
-  '#dc2626',
-  '#e11d48',
-  '#db2777',
-  '#9333ea',
-  '#475569',
-  '#1e293b',
-  '#78716c',
-  '#0f766e',
-];
+export const BACKGROUND_SWATCHES = iconPalette.backgrounds;
 
 /** Aclara (percent > 0) u oscurece (percent < 0) un color hex "#rrggbb". */
 export function shade(hex, percent) {

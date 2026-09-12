@@ -20,12 +20,17 @@ import { useT } from '../i18n.js';
 export default function UpdateToast() {
   const t = useT();
   const pushToast = useAppStore((s) => s.pushToast);
-  const [state, setState] = useState(null); // { status, percent, version, message }
+  const [state, setState] = useState(null); // { status, percent, version, message, url }
 
   useEffect(() => {
     if (!window.hardLauncher?.updater) return undefined;
     const unsub = window.hardLauncher.updater.onEvent((payload) => {
-      if (payload.status === 'downloading' || payload.status === 'available' || payload.status === 'ready') {
+      if (
+        payload.status === 'downloading' ||
+        payload.status === 'available' ||
+        payload.status === 'ready' ||
+        payload.status === 'manual'
+      ) {
         setState(payload);
       } else if (payload.status === 'not-available') {
         setState(null);
@@ -44,6 +49,13 @@ export default function UpdateToast() {
     window.hardLauncher.updater.install();
   }
 
+  // Caso Linux instalado desde .deb (o corrido sin AppImage): no hay forma
+  // de autoinstalar (ver electron/updater.js), así que el botón abre la
+  // página de la Release en el navegador para bajarla a mano.
+  function handleManualDownload() {
+    window.hardLauncher.system.openExternal(state.url);
+  }
+
   if (!state) return null;
 
   return (
@@ -60,7 +72,11 @@ export default function UpdateToast() {
             <Icon name={state.status === 'ready' ? 'check' : 'refresh'} size={13} />
           </div>
           <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {state.status === 'ready' ? t('updater.ready', { version: state.version }) : t('updater.downloading')}
+            {state.status === 'ready'
+              ? t('updater.ready', { version: state.version })
+              : state.status === 'manual'
+                ? t('updater.manualReady', { version: state.version })
+                : t('updater.downloading')}
           </div>
         </div>
 
@@ -71,6 +87,19 @@ export default function UpdateToast() {
               <button className="btn-primary btn-icon-label" style={{ flex: 1 }} onClick={handleInstall}>
                 <Icon name="refresh" size={13} />
                 {t('updater.restartNow')}
+              </button>
+              <button className="btn-secondary" onClick={() => setState(null)}>
+                {t('updater.later')}
+              </button>
+            </div>
+          </>
+        ) : state.status === 'manual' ? (
+          <>
+            <p className="update-toast-hint">{t('updater.manualHint')}</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-primary btn-icon-label" style={{ flex: 1 }} onClick={handleManualDownload}>
+                <Icon name="refresh" size={13} />
+                {t('updater.download')}
               </button>
               <button className="btn-secondary" onClick={() => setState(null)}>
                 {t('updater.later')}

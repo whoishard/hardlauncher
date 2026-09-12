@@ -365,7 +365,10 @@ function ContentTab({ instance, onToggle, onRemove, onReload }) {
   async function handleUpload() {
     setUploading(true);
     try {
-      const added = await window.hardLauncher.instances.addLocalFiles(instance.id);
+      // Con el filtro activo (Mods/Resource Packs/Shaders/Data Packs) le
+      // avisamos al proceso principal en qué subcarpeta de la instancia
+      // debe abrirse el diálogo, en vez de dejarlo caer en Documentos.
+      const added = await window.hardLauncher.instances.addLocalFiles(instance.id, filter);
       if (added.length) onReload();
     } finally {
       setUploading(false);
@@ -1115,7 +1118,7 @@ function ScreenshotsTab({ instanceId }) {
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button
                     className="btn-secondary btn-icon-label"
-                    onClick={() => window.hardLauncher.instances.openFolder(instanceId)}
+                    onClick={() => window.hardLauncher.instances.showScreenshotInFolder(instanceId, current.path)}
                   >
                     <Icon name="folder" size={14} />
                     {t('common.openFolder')}

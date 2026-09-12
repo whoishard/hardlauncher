@@ -3,6 +3,11 @@
   "version": "1.0.6",
   "private": true,
   "main": "electron/main.js",
+  "author": {
+    "name": "Hard Launcher",
+    "email": "contacto@hardlauncher.app"
+  },
+  "description": "Hard Launcher",
   "scripts": {
     "start": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "dev": "npm run start",
@@ -51,7 +56,8 @@
       "src/api/**/*",
       "src/auth/**/*",
       "src/core/**/*",
-      "src/store/**/*"
+      "src/store/**/*",
+      "src/shared/**/*"
     ],
     "publish": {
       "provider": "github",
@@ -69,6 +75,37 @@
       ],
       "icon": "build/icon.png",
       "artifactName": "HardLauncher-Setup-${version}.exe"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "Game",
+      "artifactName": "HardLauncher-${version}.${ext}"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1"
+      ]
     },
     "nsis": {
       "oneClick": false,

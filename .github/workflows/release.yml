@@ -7,7 +7,13 @@ on:
 
 jobs:
   release:
-    runs-on: windows-latest
+    strategy:
+      # fail-fast: false para que si falla el build de un SO no cancele el
+      # del otro — cada uno sube sus propios instaladores al mismo Release.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
 

@@ -814,6 +814,9 @@ ipcMain.handle('instances:exportWorldForServer', async (_e, id, worldPath, world
 });
 ipcMain.handle('instances:listScreenshots', (_e, id) => instanceStore.listScreenshots(id));
 ipcMain.handle('instances:deleteScreenshot', (_e, id, filePath) => instanceStore.deleteScreenshot(id, filePath));
+ipcMain.handle('instances:showScreenshotInFolder', (_e, id, filePath) =>
+  instanceStore.showScreenshotInFolder(id, filePath)
+);
 ipcMain.handle('instances:readImageAsDataUrl', (_e, id, filePath) => instanceStore.readImageAsDataUrl(id, filePath));
 
 // ---------- IPC: Versiones de Minecraft ----------
@@ -862,9 +865,25 @@ ipcMain.handle('modrinth:pickMrpackFile', async () => {
 });
 // Botón "Subir archivos" de la pestaña Contenido: deja elegir uno o más
 // .jar/.zip locales y los copia + registra en la instancia.
-ipcMain.handle('instances:addLocalFiles', async (_e, instanceId) => {
+// BUG FIX (el diálogo se abría siempre en una carpeta de Documentos sin
+// relación con la instancia): al no pasarle `defaultPath` a
+// dialog.showOpenDialog, Electron cae en la carpeta "Documentos" del
+// sistema la primera vez (y después recuerda la última carpeta usada por
+// CUALQUIER diálogo de la app, no una por tipo de contenido) — nunca
+// apuntaba a la instancia en sí. Ahora se abre directo en la subcarpeta que
+// corresponde al filtro activo en la pestaña Contenido (mods/resourcepacks/
+// shaderpacks/datapacks) dentro de esa instancia puntual, creándola si
+// todavía no existe para que el diálogo tenga dónde pararse.
+ipcMain.handle('instances:addLocalFiles', async (_e, instanceId, contentType) => {
+  const instance = instanceStore.getInstance(instanceId);
+  if (!instance) throw new Error('Instancia no encontrada.');
+  const folderName = modInstaller.folderForType(contentType);
+  const defaultPath = path.join(instance.dir, folderName);
+  fs.mkdirSync(defaultPath, { recursive: true });
+
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Selecciona mods o resource packs para agregar',
+    defaultPath,
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Mods y Resource Packs', extensions: ['jar', 'zip'] }],
   });

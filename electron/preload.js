@@ -117,8 +117,9 @@ contextBridge.exposeInMainWorld('hardLauncher', {
       ipcRenderer.invoke('instances:exportWorldForServer', id, worldPath, worldName),
     listScreenshots: (id) => ipcRenderer.invoke('instances:listScreenshots', id),
     deleteScreenshot: (id, filePath) => ipcRenderer.invoke('instances:deleteScreenshot', id, filePath),
+    showScreenshotInFolder: (id, filePath) => ipcRenderer.invoke('instances:showScreenshotInFolder', id, filePath),
     readImageAsDataUrl: (id, filePath) => ipcRenderer.invoke('instances:readImageAsDataUrl', id, filePath),
-    addLocalFiles: (id) => ipcRenderer.invoke('instances:addLocalFiles', id),
+    addLocalFiles: (id, contentType) => ipcRenderer.invoke('instances:addLocalFiles', id, contentType),
     // Paso "Import instance" (Crear instancia): elegir la carpeta de otro
     // launcher, y luego importar todas las instancias que se detecten ahí.
     pickLauncherFolder: () => ipcRenderer.invoke('instances:pickLauncherFolder'),

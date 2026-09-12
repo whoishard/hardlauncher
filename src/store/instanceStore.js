@@ -8,6 +8,7 @@ const settingsStore = require('./settingsStore');
 const serverListStore = require('./serverListStore');
 const { buildServersDat, addServerToDat } = require('../core/nbtWriter');
 const { readLevelInfo, writeLevelInfo } = require('../core/worldNbt');
+const { randomInstanceIcon } = require('../core/randomInstanceIcon');
 
 const store = new Store({ name: 'instances' });
 
@@ -98,7 +99,7 @@ function createInstance(data) {
   const instance = {
     id,
     name: data.name || 'Nueva Instancia',
-    icon: data.icon || null,
+    icon: data.icon || randomInstanceIcon(),
     mcVersion: data.mcVersion,
     versionType: data.versionType || 'release',
     loader: data.loader || 'vanilla',
@@ -503,6 +504,28 @@ function listScreenshots(id) {
     .sort((a, b) => b.lastModified - a.lastModified);
 }
 
+/**
+ * Revela una captura de pantalla puntual en el explorador de archivos del
+ * sistema (la selecciona/resalta), en vez de abrir la carpeta raíz de la
+ * instancia sin indicar cuál era el archivo.
+ * BUG FIX: el botón "Abrir carpeta" del visor de capturas usaba
+ * instances:openFolder, que siempre abre instance.dir (la raíz de la
+ * instancia) ignorando qué captura se estaba viendo — la persona terminaba
+ * en la raíz, sin la screenshot marcada y sin siquiera estar parado en la
+ * carpeta /screenshots. Misma restricción de ruta que deleteScreenshot.
+ */
+function showScreenshotInFolder(instanceId, filePath) {
+  const instance = getInstance(instanceId);
+  if (!instance) throw new Error('Instancia no encontrada.');
+  const resolved = path.resolve(filePath);
+  if (!resolved.startsWith(path.resolve(instance.dir))) {
+    throw new Error('Ruta fuera de la carpeta de la instancia.');
+  }
+  if (!fs.existsSync(resolved)) throw new Error('La captura ya no existe.');
+  shell.showItemInFolder(resolved);
+  return true;
+}
+
 /** Elimina una captura de pantalla puntual. Misma restricción de ruta que readImageAsDataUrl. */
 function deleteScreenshot(instanceId, filePath) {
   const instance = getInstance(instanceId);
@@ -553,5 +576,6 @@ module.exports = {
   exportWorldForServer,
   listScreenshots,
   deleteScreenshot,
+  showScreenshotInFolder,
   readImageAsDataUrl,
 };
