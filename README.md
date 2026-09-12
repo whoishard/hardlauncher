@@ -7,7 +7,7 @@
 [![Plataforma](https://img.shields.io/badge/plataforma-Windows-8b5cf6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/whoishard/hardlauncher/releases/latest)
 [![Electron](https://img.shields.io/badge/Electron-30-c4b5fd?style=for-the-badge&logo=electron&logoColor=1a1a1a)](https://www.electronjs.org/)
 
-**Launcher de Minecraft para cuentas premium y no premium.**
+**Launcher de Minecraft para mods premium y no premium.**
 Cuentas Offline y Microsoft, mods/modpacks/resource packs/shaders,
 gestión de instancias, y actualizaciones automáticas. Basado en Modrinth.
 

@@ -196,6 +196,13 @@ export default function ExploreView() {
   // numera cada pedido; si para cuando responde ya no es el más reciente, se
   // descarta en vez de aplicarse.
   const searchRequestIdRef = useRef(0);
+  // Ancla al principio de la vista (el <h1>): scrollIntoView() hace que el
+  // navegador mismo encuentre y desplace el contenedor con scroll real
+  // (.main-content), en vez de asumir a mano cuál es con querySelector — más
+  // a prueba de balas si el layout cambia. Se usa solo desde el selector de
+  // página de ABAJO del todo (ver más abajo): el de arriba ya está a la
+  // vista, no hace falta moverlo.
+  const topRef = useRef(null);
 
   async function doSearch(nextOffset = 0, nextLimit = limit) {
     const requestId = ++searchRequestIdRef.current;
@@ -354,7 +361,7 @@ export default function ExploreView() {
   }
 
   return (
-    <div>
+    <div ref={topRef}>
       <h1 style={{ marginBottom: 16 }}>{tr('explore.title')}</h1>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -606,15 +613,19 @@ export default function ExploreView() {
               page={Math.floor(offset / limit) + 1}
               totalPages={Math.max(1, Math.ceil(totalHits / limit))}
               disabled={loading}
-              onChange={(p) => {
-                doSearch((p - 1) * limit);
-                // El selector de página de abajo del todo cambia de página
-                // pero el usuario sigue con el scroll donde estaba, abajo de
-                // los resultados anteriores. Lo llevamos de vuelta arriba del
-                // todo (al contenedor con scroll real, .main-content) para
-                // que vea desde el principio los resultados de la página
-                // recién seleccionada, en vez de tener que scrollear él mismo.
-                document.querySelector('.main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
+              onChange={async (p) => {
+                // Antes esto llamaba a doSearch() sin esperarlo y scrolleaba
+                // en el mismo instante: como doSearch es asíncrono (espera
+                // la respuesta de red), el scroll pasaba MIENTRAS todavía se
+                // veían los resultados de la página vieja, y el re-render
+                // que traía los nuevos (más abajo/arriba según el caso)
+                // terminaba ganándole al scroll — quedabas igual abajo del
+                // todo. Ahora se espera a que terminen de cargar los
+                // resultados de la página nueva antes de mover el scroll, y
+                // se usa scrollIntoView() sobre el tope real de la vista en
+                // vez de adivinar a mano cuál es el contenedor con scroll.
+                await doSearch((p - 1) * limit);
+                topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }}
             />
           </div>
