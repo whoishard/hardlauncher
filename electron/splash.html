@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hard Launcher</title>
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        font-family: Inter, 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      .frame {
+        width: 100%;
+        height: 100%;
+        border-radius: 20px;
+        overflow: hidden;
+        position: relative;
+        background: #111214;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 36px;
+        opacity: 0;
+        animation: fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      /* Disparada desde main.js una vez que el launcher ya está listo detrás.
+         Solo esta regla controla la salida: transform+opacity+filter en el
+         frame entero (no en cada hijo por separado) para que sea un único
+         movimiento fluido, sin partes que se desincronicen entre sí. */
+      .frame.exit {
+        animation: none;
+        transition:
+          opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+          transform 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+          filter 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        opacity: 0;
+        transform: scale(1.06);
+        filter: blur(10px);
+      }
+      .pattern {
+        position: absolute;
+        inset: -20%;
+        background-color: #111214;
+        background-image:
+          linear-gradient(30deg, rgba(139, 92, 246, 0.07) 12%, transparent 12.5%, transparent 87%, rgba(139, 92, 246, 0.07) 87.5%),
+          linear-gradient(150deg, rgba(124, 58, 237, 0.06) 12%, transparent 12.5%, transparent 87%, rgba(124, 58, 237, 0.06) 87.5%),
+          linear-gradient(30deg, rgba(139, 92, 246, 0.045) 12%, transparent 12.5%, transparent 87%, rgba(139, 92, 246, 0.045) 87.5%),
+          linear-gradient(150deg, rgba(139, 92, 246, 0.045) 12%, transparent 12.5%, transparent 87%, rgba(139, 92, 246, 0.045) 87.5%);
+        background-size: 84px 147px;
+        background-position: 0 0, 0 0, 42px 73.5px, 42px 73.5px;
+        transform: rotate(-8deg) scale(1.15);
+        pointer-events: none;
+        animation: drift 28s linear infinite;
+      }
+      .veil {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(ellipse 70% 55% at 50% 45%, rgba(17, 18, 20, 0.15), rgba(17, 18, 20, 0.92) 72%),
+          linear-gradient(180deg, rgba(139, 92, 246, 0.08), transparent 40%, rgba(17, 18, 20, 0.4));
+        pointer-events: none;
+      }
+      .brand {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        animation: rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+      }
+      .logo {
+        width: 72px;
+        height: 72px;
+        object-fit: contain;
+        filter: drop-shadow(0 0 18px rgba(139, 92, 246, 0.55));
+        animation: breathe 2.8s ease-in-out infinite;
+      }
+      /* Al arrancar la salida, el logo pega un último "respiro" más brillante
+         y grande (en vez de cortar la respiración de golpe) justo antes de
+         que todo el frame se desvanezca: la sensación de que el launcher
+         "explota" hacia afuera desde el propio logo. */
+      .frame.exit .logo {
+        animation: flare 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      .wordmark {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        letter-spacing: -0.03em;
+        font-weight: 800;
+        font-size: 36px;
+        line-height: 1;
+      }
+      .wordmark-hard { color: #f5f5f6; }
+      .wordmark-app { color: #c4b5fd; }
+      .bar {
+        position: relative;
+        z-index: 1;
+        width: 280px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+        animation: rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.16s both;
+      }
+      .fill {
+        height: 100%;
+        width: 8%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #7c3aed, #c4b5fd);
+        box-shadow: 0 0 12px rgba(167, 139, 250, 0.7);
+        animation: load 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      /* main.js agrega esta clase apenas el launcher de atrás ya está listo,
+         antes de arrancar la salida del frame: la barra siempre llega a
+         completarse de verdad en vez de quedar pisada a mitad del keyframe
+         de "load" (que nunca pasa del 90%, para no prometer un 100% falso
+         mientras todavía se podría seguir esperando). */
+      .frame.done .fill {
+        animation: none;
+        width: 100%;
+        transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      @keyframes fade-in { to { opacity: 1; } }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes breathe {
+        0%, 100% { transform: translateY(0) scale(1); filter: drop-shadow(0 0 14px rgba(139, 92, 246, 0.45)); }
+        50% { transform: translateY(-3px) scale(1); filter: drop-shadow(0 0 22px rgba(167, 139, 250, 0.75)); }
+      }
+      @keyframes flare {
+        0% { transform: translateY(0) scale(1); filter: drop-shadow(0 0 14px rgba(139, 92, 246, 0.45)); }
+        100% { transform: translateY(0) scale(1.18); filter: drop-shadow(0 0 34px rgba(196, 181, 253, 0.95)); }
+      }
+      @keyframes drift {
+        from { transform: rotate(-8deg) scale(1.15) translate3d(0, 0, 0); }
+        to { transform: rotate(-8deg) scale(1.15) translate3d(-42px, -73.5px, 0); }
+      }
+      @keyframes load {
+        0% { width: 6%; }
+        22% { width: 22%; }
+        48% { width: 46%; }
+        72% { width: 71%; }
+        100% { width: 90%; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .pattern, .logo, .fill, .frame, .brand, .bar { animation: none !important; }
+        .frame { opacity: 1; }
+        .fill { width: 70%; }
+        /* Con reduced-motion, salida instantánea (sin scale/blur/flare) en
+           vez de simplemente no salir nunca. */
+        .frame.exit { transition: opacity 0.15s linear; opacity: 0; transform: none; filter: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame" id="frame">
+      <div class="pattern"></div>
+      <div class="veil"></div>
+      <div class="brand">
+        <img class="logo" id="logo" src="./assets/icon.png" alt="" />
+        <div class="wordmark">
+          <span class="wordmark-hard">Hard</span>
+          <span class="wordmark-app">Launcher</span>
+        </div>
+      </div>
+      <div class="bar"><div class="fill" id="fill"></div></div>
+    </div>
+  </body>
+</html>

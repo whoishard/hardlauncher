@@ -1,0 +1,84 @@
+{
+  "name": "hard-launcher",
+  "version": "1.0.0",
+  "description": "Launcher de mods premium y no premium.",
+  "main": "electron/main.js",
+  "author": "hardblast",
+  "license": "MIT",
+  "scripts": {
+    "start": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev": "npm run start",
+    "build:renderer": "vite build",
+    "build": "npm run build:renderer && electron-builder",
+    "release": "npm run build:renderer && electron-builder --publish always",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.0.18",
+    "adm-zip": "^0.5.10",
+    "axios": "^1.7.2",
+    "dompurify": "^3.1.6",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.3.9",
+    "framer-motion": "^11.15.0",
+    "marked": "^12.0.2",
+    "msmc": "^5.0.5",
+    "node-fetch": "^2.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.24.0",
+    "skinview3d": "^3.1.0",
+    "uuid": "^9.0.1",
+    "zustand": "^4.5.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "electron": "^30.0.9",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.3.1",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.hardlauncher.app",
+    "productName": "Hard Launcher",
+    "files": [
+      "electron/**/*",
+      "dist/**/*"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.png",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "HardLauncher-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Hard Launcher",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerSidebar": "build/installer/sidebar.bmp",
+      "uninstallerSidebar": "build/installer/sidebar.bmp",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "hardblast",
+      "repo": "hardlauncher"
+    }
+  }
+}
