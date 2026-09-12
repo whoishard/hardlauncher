@@ -78,7 +78,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "hardblast",
+      "owner": "whoishard",
       "repo": "hardlauncher"
     }
   }
