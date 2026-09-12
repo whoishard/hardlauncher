@@ -1,6 +1,6 @@
 {
   "name": "hard-launcher",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -45,8 +45,12 @@
       "buildResources": "build"
     },
     "files": [
+      "electron/**/*",
       "dist/**/*",
-      "electron/**/*"
+      "src/api/**/*",
+      "src/auth/**/*",
+      "src/core/**/*",
+      "src/store/**/*"
     ],
     "publish": {
       "provider": "github",
