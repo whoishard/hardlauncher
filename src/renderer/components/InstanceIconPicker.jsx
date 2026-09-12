@@ -12,7 +12,7 @@ import { useT } from '../i18n.js';
  * miniatura sigue siendo un atajo rápido para subir una imagen sin pasar
  * por el estudio, igual que antes.
  */
-export default function InstanceIconPicker({ name, loader, value, onChange }) {
+export default function InstanceIconPicker({ name, loader, value, onChange, isRandomDefault }) {
   const t = useT();
   const [dragOver, setDragOver] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
@@ -59,7 +59,7 @@ export default function InstanceIconPicker({ name, loader, value, onChange }) {
         <div>
           <div className="icon-picker-title">{t('icon.title')}</div>
           <div className="icon-picker-hint">
-            {value ? t('icon.custom') : t('icon.auto')}
+            {!value ? t('icon.auto') : isRandomDefault ? t('icon.randomAssigned') : t('icon.custom')}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

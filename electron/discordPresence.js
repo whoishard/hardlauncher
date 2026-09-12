@@ -29,7 +29,7 @@ const { Client } = require('@xhayper/discord-rpc');
 // Presence" → "Art Assets" con el key 'launcher_icon', ese es el nombre que
 // hay que usar abajo en largeImageKey para que se vea tu ícono en vez de no
 // mostrar ninguna imagen.
-const CLIENT_ID = '1548419864430121134';
+const CLIENT_ID = '1548432655517876264';
 
 const RECONNECT_INTERVAL_MS = 15000;
 

@@ -7,6 +7,7 @@ import Select from './Select.jsx';
 import Icon from './Icon.jsx';
 import InstanceIconPicker from './InstanceIconPicker.jsx';
 import { LoaderGlyph, LOADER_BADGES } from './InstanceIcon.jsx';
+import { composeIconDataUrl, BACKGROUND_SWATCHES, ICON_SHAPES } from './iconStudioData.js';
 
 // Mismo par overlay+card (fade del fondo, scale+slide de la tarjeta) que
 // usa el Modal genérico de Solaris Launcher. Se define una sola vez acá y
@@ -109,6 +110,11 @@ function CustomSetupStep({ onClose, onBack, onCreated }) {
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [name, setName] = useState('');
   const [icon, setIcon] = useState(null);
+  // true mientras `icon` sigue siendo el generado al azar al abrir este paso
+  // (ver el useEffect de más abajo) y el usuario todavía no lo tocó — se usa
+  // solo para mostrar el texto correcto en InstanceIconPicker ("ícono
+  // aleatorio asignado" vs. "imagen personalizada aplicada").
+  const [iconIsRandomDefault, setIconIsRandomDefault] = useState(true);
   const [mcVersion, setMcVersion] = useState('');
   const [loader, setLoader] = useState('vanilla');
   const [loaderVersions, setLoaderVersions] = useState([]); // [{ version, stable }]
@@ -124,6 +130,30 @@ function CustomSetupStep({ onClose, onBack, onCreated }) {
       setMcVersion(data.latest.release);
     });
   }, []);
+
+  // Antes esta pantalla arrancaba con `icon: null`, así que el preview
+  // mostraba siempre el mismo cuadradito gris con el glifo de caja genérico
+  // (ver InstanceIcon.jsx) hasta que el usuario entraba al Estudio a mano.
+  // Ahora se genera un ícono al azar apenas se abre el paso, con exactamente
+  // la misma paleta de fondos y el mismo set de formas del botón
+  // "Aleatorio" del Estudio (ver randomize() en IconStudioModal.jsx) — así
+  // cada instancia nueva ya arranca con un ícono propio y reconocible en la
+  // grilla, sin que haga falta abrir "Editar ícono" a mano. El usuario sigue
+  // pudiendo cambiarlo (Editar ícono) o sacarlo (Quitar, ver
+  // InstanceIconPicker.jsx) si prefiere el default plano.
+  useEffect(() => {
+    const useShape = Math.random() > 0.15;
+    const bg = BACKGROUND_SWATCHES[Math.floor(Math.random() * BACKGROUND_SWATCHES.length)];
+    const shapeId = useShape ? ICON_SHAPES[Math.floor(Math.random() * ICON_SHAPES.length)].id : null;
+    composeIconDataUrl(bg, shapeId)
+      .then(setIcon)
+      .catch(() => {}); // si falla, se queda con el default plano — no rompe el resto del formulario
+  }, []);
+
+  function handleIconChange(next) {
+    setIcon(next);
+    setIconIsRandomDefault(false);
+  }
 
   // Cada vez que cambia el loader o la versión de MC, se recarga la lista de
   // versiones de loader disponibles. Sin esto el launcher intentaba lanzar
@@ -198,7 +228,13 @@ function CustomSetupStep({ onClose, onBack, onCreated }) {
       <ModalHeader title={t('create.title')} onClose={onClose} />
 
       <div className="instance-form-field">
-        <InstanceIconPicker name={name || t('create.namePlaceholder')} loader={loader} value={icon} onChange={setIcon} />
+        <InstanceIconPicker
+          name={name || t('create.namePlaceholder')}
+          loader={loader}
+          value={icon}
+          onChange={handleIconChange}
+          isRandomDefault={iconIsRandomDefault}
+        />
       </div>
       <div className="instance-form-field">
         <label className="instance-form-label">{t('create.name')}</label>

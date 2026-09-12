@@ -7,9 +7,9 @@
 [![Plataforma](https://img.shields.io/badge/plataforma-Windows-8b5cf6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/whoishard/hardlauncher/releases/latest)
 [![Electron](https://img.shields.io/badge/Electron-30-c4b5fd?style=for-the-badge&logo=electron&logoColor=1a1a1a)](https://www.electronjs.org/)
 
-**Launcher de Minecraft con la UX de la app de Modrinth, en violeta.**
-Cuentas Offline y Microsoft, mods/modpacks/resource packs/shaders desde
-Modrinth, gestión de instancias, y actualizaciones automáticas.
+**Launcher de Minecraft para cuentas premium y no premium.**
+Cuentas Offline y Microsoft, mods/modpacks/resource packs/shaders,
+gestión de instancias, y actualizaciones automáticas. Basado en Modrinth.
 
 [**⬇️ Descargar la última versión**](https://github.com/whoishard/hardlauncher/releases/latest)
 &nbsp;·&nbsp;
@@ -23,7 +23,7 @@ Modrinth, gestión de instancias, y actualizaciones automáticas.
 
 - 🟣 **Cuentas Offline y Microsoft (Premium)** — mismo flujo de lanzamiento
   para las dos, sin ramas de código separadas.
-- 📦 **Explorador de contenido de Modrinth** — mods, resource packs, shaders,
+- 📦 **Explorador de contenido** — mods, resource packs, shaders,
   modpacks y data packs, con filtros, buscador y progreso de instalación por
   ítem (sin saltos raros de layout al instalar varios seguidos).
 - 🗂️ **Gestión de instancias** — múltiples versiones/loaders (Fabric, Quilt,
@@ -117,8 +117,8 @@ aplicación en el [Azure Portal](https://portal.azure.com) y usar tu propio
 | Auto-actualización | **electron-updater** | Chequea, descarga e instala actualizaciones publicadas como GitHub Releases. |
 | Empaquetado | **electron-builder** | Genera el instalador `.exe` (NSIS) con ícono, accesos directos y diseño propio. |
 
-Alternativa evaluada: **Tauri + Rust** (lo que usa Modrinth App realmente) —
-produce binarios más livianos, pero el ecosistema de librerías para el
+Alternativa evaluada: **Tauri + Rust** — produce binarios más livianos,
+pero el ecosistema de librerías para el
 protocolo de lanzamiento de Minecraft (Yggdrasil, Fabric Meta, etc.) está
 mucho más maduro en Node.js, por lo que Electron acelera el desarrollo.
 

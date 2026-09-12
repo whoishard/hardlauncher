@@ -606,7 +606,16 @@ export default function ExploreView() {
               page={Math.floor(offset / limit) + 1}
               totalPages={Math.max(1, Math.ceil(totalHits / limit))}
               disabled={loading}
-              onChange={(p) => doSearch((p - 1) * limit)}
+              onChange={(p) => {
+                doSearch((p - 1) * limit);
+                // El selector de página de abajo del todo cambia de página
+                // pero el usuario sigue con el scroll donde estaba, abajo de
+                // los resultados anteriores. Lo llevamos de vuelta arriba del
+                // todo (al contenedor con scroll real, .main-content) para
+                // que vea desde el principio los resultados de la página
+                // recién seleccionada, en vez de tener que scrollear él mismo.
+                document.querySelector('.main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
             />
           </div>
         </div>
