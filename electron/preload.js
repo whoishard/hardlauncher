@@ -70,6 +70,8 @@ contextBridge.exposeInMainWorld('hardLauncher', {
     getTotalMemoryMB: () => ipcRenderer.invoke('system:getTotalMemoryMB'),
     getVersion: () => ipcRenderer.invoke('system:getVersion'),
     openExternal: (url) => ipcRenderer.invoke('system:openExternal', url),
+    getSafeMode: () => ipcRenderer.invoke('app:getSafeMode'),
+    setSafeMode: (value) => ipcRenderer.invoke('app:setSafeMode', value),
   },
   updater: {
     check: () => ipcRenderer.invoke('updater:check'),

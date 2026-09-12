@@ -310,6 +310,12 @@ export const translations = {
     'settings.keepOpen': 'Mantener el launcher abierto mientras jugás',
     'settings.keepOpenHint':
       'Si lo desactivás, la ventana se minimiza automáticamente al iniciar el juego y vuelve a mostrarse cuando cerrás Minecraft.',
+    'settings.discordPresence': 'Mostrar presencia en Discord',
+    'settings.discordPresenceHint':
+      'Con Discord abierto, tus amigos van a ver que estás usando Hard Launcher (y qué instancia estás jugando, si hay una abierta).',
+    'settings.safeMode': 'Modo seguro (sin aceleración por GPU)',
+    'settings.safeModeHint':
+      'Activalo si el launcher se te pone en negro, se congela o se cierra solo al abrirlo. Hace falta reiniciar el launcher para que tenga efecto.',
     'settings.accountsHint': 'Para añadir una cuenta nueva, usá el selector de cuenta en la esquina superior derecha.',
     'settings.defaultsTitle': 'Valores por defecto para instancias nuevas',
     'settings.defaultsHint': 'Se usan al crear una instancia; después podés ajustarlos por instancia individual.',
@@ -845,6 +851,12 @@ export const translations = {
     'settings.keepOpen': 'Keep the launcher open while playing',
     'settings.keepOpenHint':
       'If you turn this off, the window minimizes automatically when the game starts and comes back when you quit Minecraft.',
+    'settings.discordPresence': 'Show Discord presence',
+    'settings.discordPresenceHint':
+      "With Discord open, your friends will see you're using Hard Launcher (and which instance you're playing, if one is open).",
+    'settings.safeMode': 'Safe mode (no GPU acceleration)',
+    'settings.safeModeHint':
+      'Turn this on if the launcher goes black, freezes, or closes by itself when opening it. Restart the launcher for it to take effect.',
     'settings.accountsHint': 'To add a new account, use the account picker in the top-right corner.',
     'settings.defaultsTitle': 'Defaults for new instances',
     'settings.defaultsHint': 'Used when creating an instance; you can override them per instance later.',
@@ -1381,6 +1393,12 @@ export const translations = {
     'settings.keepOpen': 'Manter o launcher aberto enquanto joga',
     'settings.keepOpenHint':
       'Se desativar, a janela minimiza automaticamente ao iniciar o jogo e volta quando você fecha o Minecraft.',
+    'settings.discordPresence': 'Mostrar presença no Discord',
+    'settings.discordPresenceHint':
+      'Com o Discord aberto, seus amigos vão ver que você está usando o Hard Launcher (e qual instância você está jogando, se houver uma aberta).',
+    'settings.safeMode': 'Modo seguro (sem aceleração por GPU)',
+    'settings.safeModeHint':
+      'Ative se o launcher ficar preto, travar ou fechar sozinho ao abrir. É preciso reiniciar o launcher para ter efeito.',
     'settings.accountsHint': 'Para adicionar uma conta nova, use o seletor no canto superior direito.',
     'settings.defaultsTitle': 'Padrões para novas instâncias',
     'settings.defaultsHint': 'Usados ao criar uma instância; depois você pode ajustar por instância.',

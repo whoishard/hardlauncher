@@ -250,6 +250,56 @@ function BehaviorSection() {
           onClick={() => updateSettings({ keepLauncherOpenWhilePlaying: !settings.keepLauncherOpenWhilePlaying })}
         />
       </div>
+      <div
+        className="card"
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 16, gap: 16, marginTop: 12 }}
+      >
+        <div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>{t('settings.discordPresence')}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('settings.discordPresenceHint')}</div>
+        </div>
+        <div
+          className={'toggle' + (settings.discordRichPresence ? ' on' : '')}
+          onClick={() => updateSettings({ discordRichPresence: !settings.discordRichPresence })}
+        />
+      </div>
+      <SafeModeToggle />
+    </div>
+  );
+}
+
+/**
+ * A diferencia del resto de los toggles de esta pantalla, este valor no
+ * vive en settingsStore: tiene que poder leerse ANTES de que Electron esté
+ * "ready" (ver electron/main.js), así que se guarda en un archivo aparte y
+ * se lee/escribe por su propio canal IPC (system.getSafeMode/setSafeMode).
+ */
+function SafeModeToggle() {
+  const t = useT();
+  const [safeMode, setSafeModeState] = useState(null);
+
+  useEffect(() => {
+    window.hardLauncher?.system?.getSafeMode().then(setSafeModeState).catch(() => setSafeModeState(false));
+  }, []);
+
+  if (safeMode === null) return null;
+
+  function handleToggle() {
+    const next = !safeMode;
+    setSafeModeState(next);
+    window.hardLauncher?.system?.setSafeMode(next);
+  }
+
+  return (
+    <div
+      className="card"
+      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 16, gap: 16, marginTop: 12 }}
+    >
+      <div>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>{t('settings.safeMode')}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('settings.safeModeHint')}</div>
+      </div>
+      <div className={'toggle' + (safeMode ? ' on' : '')} onClick={handleToggle} />
     </div>
   );
 }

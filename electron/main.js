@@ -21,6 +21,7 @@ const modInstaller = require('../src/api/modInstaller');
 const serverListStore = require('../src/store/serverListStore');
 const { pingServer } = require('../src/core/serverPing');
 const { setupAutoUpdater } = require('./updater');
+const discordPresence = require('./discordPresence');
 
 // BUG FIX (videos de YouTube en descripciones de proyecto no reproducen —
 // "Error 153: Video player configuration error"): además de reactivar el
@@ -54,6 +55,57 @@ let splashWindow;
 let tray = null;
 let trayPopup = null;
 const isDev = !app.isPackaged;
+
+// ---------- Recuperación automática ante crashes (GPU/drivers) ----------
+//
+// Síntoma típico en PCs con drivers de video viejos/raros: la ventana se
+// pone negra, deja de responder, y la app termina cayéndose — sin que en tu
+// propia PC (con otro hardware) se reproduzca nunca. Como a la persona que
+// le pasa esto no le podemos pedir que abra una consola, se resuelve solo:
+// 1. Si la sesión anterior no cerró "limpio" (ver writeCrashMarker), esta
+//    vez arranca en modo seguro (sin aceleración por GPU) automáticamente.
+// 2. Cualquier caída del proceso de renderizado, del proceso de GPU, o un
+//    error no manejado del proceso principal, queda anotada en un archivo
+//    de texto en el Escritorio — para poder pedírselo a quien le pasó y
+//    entender qué fue sin acceso remoto a esa PC.
+const sessionMarkerPath = path.join(app.getPath('userData'), 'session-marker.json');
+
+function readSessionMarker() {
+  try {
+    return JSON.parse(fs.readFileSync(sessionMarkerPath, 'utf-8'));
+  } catch {
+    return { cleanExit: true, safeMode: false };
+  }
+}
+
+function writeSessionMarker(partial) {
+  try {
+    fs.writeFileSync(sessionMarkerPath, JSON.stringify({ ...readSessionMarker(), ...partial }));
+  } catch {
+    /* si ni esto se puede escribir, no hay mucho más para hacer acá */
+  }
+}
+
+function writeCrashLog(title, details) {
+  try {
+    const logPath = path.join(app.getPath('desktop'), 'HardLauncher-error.txt');
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${title}\n${details}\n\n`);
+  } catch {
+    /* sin Escritorio accesible (permisos raros, etc.) no es crítico */
+  }
+}
+
+const previousSession = readSessionMarker();
+// safeMode manual (ver toggle en Ajustes) prende esto para siempre hasta que
+// se desactive a mano; cleanExit=false (la sesión anterior se cortó mal) lo
+// prende UNA vez, para intentar recuperarse solo del próximo arranque.
+const startInSafeMode = previousSession.safeMode || previousSession.cleanExit === false;
+if (startInSafeMode) app.disableHardwareAcceleration();
+// Se marca "sucia" desde ya: si el cierre es normal (ver app.on('before-quit')
+// más abajo), se vuelve a poner en limpio. Si la app se cae antes de llegar
+// ahí, queda así — y por eso el PRÓXIMO arranque activa el modo seguro solo.
+writeSessionMarker({ cleanExit: false });
+
 const SPLASH_MIN_MS = 1700;
 // Duración de la transición de salida del splash (ver .frame.exit en
 // splash.html): tiene que coincidir con la del CSS, porque es lo que le dice
@@ -104,7 +156,18 @@ function createSplash() {
     width: 640,
     height: 380,
     frame: false,
-    transparent: true,
+    // ANTES: transparent: true. Una ventana con transparencia real de
+    // Windows (compuesta por el DWM a través del GPU) es una causa muy
+    // conocida de que el compositor de escritorio se caiga en PCs con
+    // drivers de video viejos/raros — cuando eso pasa, Windows muestra el
+    // fondo de pantalla en negro (síntoma reportado) y esta misma ventana,
+    // que depende de esa transparencia para dibujarse, se queda colgada sin
+    // terminar de aparecer (el "queda cargando y no abre" reportado). El
+    // .frame de splash.html ya es 100% opaco y cubre toda la ventana, así
+    // que la transparencia real no aportaba nada más que las esquinas
+    // redondeadas — y roundedCorners (abajo) ya las resuelve sin usar
+    // composición GPU entre procesos.
+    transparent: false,
     resizable: false,
     maximizable: false,
     minimizable: false,
@@ -115,7 +178,7 @@ function createSplash() {
     center: true,
     hasShadow: true,
     roundedCorners: true,
-    backgroundColor: '#00000000',
+    backgroundColor: '#111214',
     icon: path.join(__dirname, 'assets/icon.png'),
     webPreferences: {
       contextIsolation: true,
@@ -335,7 +398,12 @@ function createTrayPopup() {
     height: 176,
     show: false,
     frame: false,
-    transparent: true,
+    // Ver el mismo cambio y comentario en createSplash(): transparencia real
+    // de ventana = riesgo de tirar abajo el compositor de Windows en placas
+    // de video problemáticas. Esta ventana se abre cada vez que se toca el
+    // ícono de la bandeja mientras el launcher sigue corriendo — más
+    // seguido todavía que el splash — así que vale el mismo arreglo.
+    transparent: false,
     resizable: false,
     movable: false,
     minimizable: false,
@@ -344,7 +412,7 @@ function createTrayPopup() {
     skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: true,
-    backgroundColor: '#00000000',
+    backgroundColor: '#1c1d20',
     webPreferences: {
       preload: path.join(__dirname, 'trayPreload.js'),
       contextIsolation: true,
@@ -461,6 +529,7 @@ app.whenReady().then(() => {
   if (!isDev) registerAppProtocol();
   createWindow();
   setupAutoUpdater(mainWindow, { isDev });
+  discordPresence.init(settingsStore.getSettings().discordRichPresence);
   // Ícono de bandeja persistente (ver comentario arriba de createTray):
   // arranca junto con la app, no recién cuando el launcher se oculta.
   createTray();
@@ -476,6 +545,31 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => writeSessionMarker({ cleanExit: true }));
+
+// Caída del proceso de renderizado (la ventana en sí) — el caso típico de
+// "se puso todo negro y no respondía más" en PCs con drivers de GPU
+// problemáticos.
+app.on('render-process-gone', (_e, _wc, details) => {
+  writeCrashLog(
+    'Se cayó la ventana del launcher',
+    `Razón: ${details.reason}\nCódigo de salida: ${details.exitCode}\nModo seguro estaba: ${startInSafeMode ? 'activado' : 'desactivado'}`
+  );
+});
+
+// Caída de un proceso hijo de Electron — en la práctica, en el caso que nos
+// interesa acá, casi siempre el proceso de GPU.
+app.on('child-process-gone', (_e, details) => {
+  writeCrashLog('Se cayó un proceso interno de Electron', `Tipo: ${details.type}\nRazón: ${details.reason}`);
+});
+
+// Cualquier excepción no atrapada en el proceso principal (fuera de un
+// ipcMain.handle, que ya devuelve el error al renderer solo) — sin esto,
+// antes simplemente tiraba la app abajo sin dejar rastro de qué pasó.
+process.on('uncaughtException', (err) => {
+  writeCrashLog('Error no manejado en el proceso principal', err?.stack || String(err));
 });
 
 // Por las dudas de que la app termine (Alt+F4 en la ventana principal
@@ -651,7 +745,29 @@ ipcMain.handle('system:openExternal', async (_e, url) => {
 });
 
 ipcMain.handle('settings:get', () => settingsStore.getSettings());
-ipcMain.handle('settings:update', (_e, partial) => settingsStore.updateSettings(partial));
+
+// El modo seguro (sin aceleración por GPU) tiene que decidirse ANTES de que
+// Electron esté "ready" (ver arriba de todo el archivo), así que no puede
+// vivir solo en settingsStore como el resto de los ajustes — se guarda
+// también en el mismo archivo chico que ya se lee en ese punto tan
+// temprano. Acá se expone nada más para que el toggle de Ajustes pueda leer
+// y escribir ese valor.
+ipcMain.handle('app:getSafeMode', () => readSessionMarker().safeMode || false);
+ipcMain.handle('app:setSafeMode', (_e, value) => {
+  writeSessionMarker({ safeMode: value });
+  return value;
+});
+
+ipcMain.handle('settings:update', (_e, partial) => {
+  const updated = settingsStore.updateSettings(partial);
+  // Ver electron/discordPresence.js: si el toggle de "Discord Rich Presence"
+  // cambió, se conecta/desconecta ahí mismo, sin esperar a que se reinicie
+  // el launcher.
+  if (Object.prototype.hasOwnProperty.call(partial, 'discordRichPresence')) {
+    discordPresence.setEnabled(partial.discordRichPresence);
+  }
+  return updated;
+});
 ipcMain.handle('system:getTotalMemoryMB', () => Math.floor(os.totalmem() / (1024 * 1024)));
 ipcMain.handle('system:getVersion', () => app.getVersion());
 ipcMain.handle('storage:info', () => storageInfo.getStorageInfo());
@@ -794,10 +910,13 @@ ipcMain.handle('game:launch', async (_e, instanceId, directConnect) => {
   const account = accountManager.getActiveAccount();
   if (!account) throw new Error('No hay ninguna cuenta activa seleccionada.');
 
+  discordPresence.setPlaying(instance.name, instance.mcVersion);
+
   const result = await launcher.launch(instance, account, {
     onProgress: (data) => mainWindow.webContents.send('game:downloadProgress', data),
     onLog: (line) => mainWindow.webContents.send('game:log', line),
     onExit: (code) => {
+      discordPresence.setIdle();
       mainWindow.webContents.send('game:exit', code);
       // .restore() por sí solo puede dejar la ventana "visible" pero sin
       // foco ni al frente en algunos gestores de ventanas (Windows incluido

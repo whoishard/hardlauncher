@@ -10,6 +10,7 @@ const store = new Store({
     defaultFullscreen: false,
     javaPathOverride: null,
     keepLauncherOpenWhilePlaying: true,
+    discordRichPresence: true,
     theme: 'dark', // 'dark' | 'oled' | 'light' | 'system'
     language: 'es', // 'es' | 'en' | 'pt'
 
