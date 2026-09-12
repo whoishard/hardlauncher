@@ -3131,6 +3131,21 @@ input:focus, select:focus { outline: none; border-color: var(--accent-primary); 
   align-items: flex-start;
 }
 
+/* Overlay de progreso de instalación (ver ExploreView.jsx) — flota pegado al
+   borde inferior de la tarjeta sin ocupar espacio en el flujo, así no empuja
+   ni corre las tarjetas de abajo mientras se instalan varios mods seguidos. */
+.result-install-overlay {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
 .result-icon {
   width: 64px;
   height: 64px;

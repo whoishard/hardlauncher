@@ -449,7 +449,7 @@ export default function ExploreView() {
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.2, delay: Math.min(i * 0.02, 0.3), ease: [0.16, 1, 0.3, 1] }}
                   className="card result-row"
-                  style={{ flexDirection: 'column', alignItems: 'stretch' }}
+                  style={{ flexDirection: 'column', alignItems: 'stretch', position: 'relative', overflow: 'hidden' }}
                 >
                   <div style={{ display: 'flex', gap: 12 }}>
                     <img
@@ -522,19 +522,23 @@ export default function ExploreView() {
                     </div>
                   </div>
 
-                  {/* Barra de progreso INLINE, en el propio rectángulo del mod —
-                      reemplaza al toast flotante de siempre para este flujo (ver
-                      InstallProgressToast.jsx / inlineInstallActive en store.js).
-                      No es un overlay ni bloquea nada: el resto de la fila (y de
-                      la pantalla) se puede seguir usando mientras esto corre. */}
+                  {/* Progreso de instalación como overlay flotante pegado al
+                      borde inferior de la tarjeta (position: absolute) — a
+                      propósito NO ocupa espacio en el flujo del documento.
+                      Antes esto empujaba la altura de la tarjeta hacia abajo
+                      (animando height/marginTop), lo que corría en cascada
+                      todas las tarjetas siguientes de la lista cada vez que
+                      arrancaba o terminaba una instalación — muy molesto al
+                      instalar varios mods seguidos. Con position: absolute,
+                      el resto de la lista ni se entera. */}
                   <AnimatePresence>
                     {!isModpackHit && installingId === hit.project_id && (
                       <motion.div
-                        initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                        animate={{ opacity: 1, height: 'auto', marginTop: 10 }}
-                        exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                        className="result-install-overlay"
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 6 }}
                         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                        style={{ overflow: 'hidden' }}
                       >
                         <ProgressBar
                           percent={installProgress?.percent ?? null}
