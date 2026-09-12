@@ -1,0 +1,4502 @@
+/* Tipografía: Inter en toda la interfaz — títulos y resto de la UI por
+   igual — igual que la app real de Modrinth (antes los títulos usaban Sora,
+   una fuente "display" con más carácter tipo gaming, pero que se veía
+   claramente distinta/menos prolija al lado de Modrinth). --font-display
+   sigue existiendo como variable propia (títulos son 700/800 en vez de los
+   pesos normales de --font-main) para no tener que tocar cada regla que la
+   usa, pero ahora apunta a la misma familia. Los .woff2 se cargan de forma
+   local vía @fontsource (ver main.jsx) en vez de un @import a Google Fonts,
+   para que nunca dependan de la conexión de quien tenga la app instalada.
+   Los fallbacks de abajo son fuentes del sistema de alta calidad (no
+   bitmap), por si alguna variante puntual de peso no llegó a cargar
+   todavía en el primer paint. */
+/* Fuente tipo chat de Minecraft, usada solo en el mini-widget de skin del
+   home hero (mensaje "NoSoyHard: GTA 6 peak."). Rendición fan-made de la
+   tipografía del juego (Idrees Hassan, licencia SIL OFL 1.1), no son los
+   archivos originales de Mojang. */
+@font-face {
+  font-family: 'Minecraft';
+  src: url('../src/renderer/assets/fonts/Minecraft.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Minecraft';
+  src: url('../src/renderer/assets/fonts/Minecraft-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Gris neutro (no morado) para el fondo, con más contraste entre capas
+     que antes — el morado queda reservado para acentos, botones y estados
+     activos, igual que en la app real de Modrinth. */
+  --bg-app: #16181c;
+  --bg-panel: #222326;
+  --bg-panel-alt: #2c2e33;
+  --bg-hover: #35373e;
+  --border-subtle: #3c3e46;
+
+  --accent-primary: #a78bfa;
+  --accent-primary-hover: #c4b5fd;
+  --accent-secondary: #8b5cf6;
+  --accent-gradient: linear-gradient(135deg, #c4b5fd 0%, #7c3aed 100%);
+  --accent-rgb: 167, 139, 250;
+
+  --text-primary: #f5f5f6;
+  --text-secondary: #b4b6bd;
+  --text-muted: #8d8f98;
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  --font-main: 'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif;
+
+  /* --- Tomado de Solaris Launcher: vidrio esmerilado, glow del acento y una
+     curva de easing más "premium" que el ease-out plano que se usaba antes.
+     Son variables nuevas y aditivas: nada de lo de arriba se toca, así que
+     los temas alternativos (oled/light/sharp, más abajo) siguen funcionando
+     igual y automáticamente heredan el glow con SU color de acento. --- */
+  --ease-solar: cubic-bezier(0.16, 1, 0.3, 1);
+  --glass-bg: rgba(29, 30, 35, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glow-accent: 0 0 24px -4px color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  --glow-accent-lg: 0 0 48px -8px color-mix(in srgb, var(--accent-primary) 55%, transparent);
+}
+
+* { box-sizing: border-box; }
+
+/* La UI fija (títulos, botones, nav, tarjetas, etc.) no está pensada para
+   copiarse — es "chrome" de la app, no contenido. Sin esto, arrastrar el
+   mouse por encima de cualquier texto (algo muy fácil de hacer sin querer
+   al mover ventanas, hacer drag&drop, etc.) deja ese resaltado celeste de
+   selección de texto de navegador, que en una app de escritorio nativa se
+   ve roto/poco profesional. Se apaga user-select a nivel global y se
+   reactiva puntualmente solo donde SÍ hace falta copiar texto: inputs,
+   textareas, contenido editable, y la consola/log de juego (.console-line,
+   ya tenía su propio user-select antes de esto). */
+html, body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+input, textarea, [contenteditable='true'], .console-output, .console-line {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Arrastrar una <img> con el mouse dispara el drag nativo del navegador
+   (el "fantasma" semitransparente de la imagen siguiendo el cursor, y en
+   Electron a veces hasta abre la imagen en una ventana nueva si se suelta
+   fuera). Ninguna imagen de la UI (avatares, íconos de instancia, logos)
+   está para arrastrarse afuera de la app, así que se apaga en todos lados
+   menos en las zonas reales de drag&drop de archivos (los tiles con
+   onDrop ya manejan su propio dragover/drop vía JS, no dependen de esto). */
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
+  pointer-events: auto;
+}
+
+/* Por defecto Chromium le pone a cualquier <button>/<div tabIndex> que recibe
+   foco (incluso con un simple click de mouse, no solo con teclado) un anillo
+   de foco grueso y de un tono azul/morado que no respeta los radios ni
+   colores de la app — eso es el "borde morado feo" que aparecía sobre menús
+   como Select o el botón de opciones al pasar el cursor y clickear. Se
+   apaga el foco para clicks de mouse y se deja un anillo prolijo, propio de
+   la app, solo para navegación por teclado (accesible sin ser feo). */
+button, [role='button'], .custom-select-trigger, .filter-dropdown-trigger, .target-picker-trigger {
+  -webkit-tap-highlight-color: transparent;
+  /* Chromium le pone a todo <button> un color de texto propio (negro) por
+     defecto, que NO hereda el --text-primary de <body> como sí hace
+     cualquier otro elemento — por eso títulos/textos adentro de botones sin
+     un color propio (ej. las opciones de "Crear instancia") aparecían en
+     negro sobre fondo oscuro. Se hereda acá una sola vez para toda la app,
+     en vez de tener que acordarse de setear color en cada botón nuevo. */
+  color: inherit;
+  font-family: inherit;
+}
+button:focus,
+[role='button']:focus,
+.custom-select-trigger:focus,
+.filter-dropdown-trigger:focus,
+.target-picker-trigger:focus,
+a:focus {
+  outline: none;
+}
+button:focus-visible,
+[role='button']:focus-visible,
+.custom-select-trigger:focus-visible,
+.filter-dropdown-trigger:focus-visible,
+.target-picker-trigger:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+
+/* Fade-in del launcher al montar. Solo opacity (nunca transform) a
+   propósito: animar transform acá crearía un containing block nuevo para
+   toda la app, incluidos los elementos position:fixed (modales, toasts),
+   rompiendo su posicionamiento respecto del viewport para siempre, no solo
+   durante la animación. Con opacity alcanza para que el launcher se sienta
+   "aparecer" mientras la pantalla de carga se desvanece encima (ver
+   electron/splash.html y electron/main.js), sin ese efecto secundario. */
+#root {
+  animation: root-fade-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes root-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #root { animation: none; }
+}
+
+body {
+  margin: 0;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  /* Evita que el navegador "invente" un peso o itálica cuando falta esa
+     variante exacta: sin esto, Chromium dibuja una versión sintética
+     engrosando/inclinando el peso más cercano a mano, que en textos chicos
+     se ve borrosa y dentada en vez de nítida. Con font-synthesis: none
+     directamente usa el peso real más cercano que sí está cargado. */
+  font-synthesis: none;
+  font-optical-sizing: auto;
+}
+
+/* Scrollbar oscuro consistente en toda la app, en vez del gris por defecto de Windows */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 10px;
+  border: 2px solid var(--bg-app);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--accent-secondary); }
+/* Sin esto, Chromium dibuja la esquina entre scrollbar vertical/horizontal
+   como un cuadrado blanco sin tema (se veía como un "cosito blanco"
+   pegado a la scrollbar del listado de instancias). */
+::-webkit-scrollbar-corner { background: transparent; }
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.app-root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg-app);
+  animation: app-reveal 0.5s var(--ease-solar);
+}
+
+/* Identidad morada del launcher: un resplandor sutil y fijo en las esquinas,
+   NO un relleno plano — así se mantiene limpio y con buen contraste, pero
+   se siente "de marca" en vez de un gris genérico de cualquier app. */
+.app-root::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 900px 500px at -10% -10%, color-mix(in srgb, var(--accent-primary) 16%, transparent), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 110% 110%, color-mix(in srgb, var(--accent-secondary) 12%, transparent), transparent 60%);
+}
+
+/* BUG FIX (notificaciones que "bajan" el contenido de abajo al aparecer):
+   esta regla le pone position:relative a TODO hijo directo de .app-root
+   (para el fondo con resplandor, ver .app-root::before) — pero por
+   especificidad (dos clases acá vs. una sola en la regla de cada uno de
+   estos) le ganaba a su propio position:fixed, así que en vez de flotar
+   sobre el contenido quedaban metidos en el flujo normal del layout
+   (.app-root es un flex-column) y cada vez que aparecía uno empujaba todo
+   lo de abajo (Inicio, Explorar, etc.) hacia abajo un toque, con el salto
+   feo que se ve al tocar "Agregar a todas las instancias" o durante una
+   instalación desde Explorar. Se excluyen acá los que necesitan quedarse
+   fixed de verdad: los toasts (ToastContainer), el de progreso de
+   instalación (InstallProgressToast) y el overlay de Ajustes
+   (SettingsModal), que por lo mismo motivo tampoco debería quedar
+   "achicado" adentro del layout en vez de cubrir toda la ventana. */
+.app-root > *:not(.ambient-bg):not(.toast-container):not(.install-progress-toast):not(.update-toast):not(.modal-overlay) {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- Barra de título propia (reemplaza el marco nativo de Windows) --- */
+.titlebar {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.titlebar-drag {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 16px;
+  height: 100%;
+}
+
+.titlebar-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent-primary) 65%, transparent));
+}
+
+.titlebar-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.titlebar-title-accent {
+  color: var(--accent-primary-hover);
+  font-weight: 800;
+}
+
+/* Agrupa el indicador de "instancia en ejecución" con los controles de
+   ventana en el extremo derecho, en vez de quedar flotando en el medio de
+   la barra de título (como pasaba antes, al ser un tercer hijo suelto del
+   flex con space-between). */
+.titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 100%;
+  padding-right: 4px;
+}
+
+.titlebar-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-btn {
+  width: 52px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.18s var(--ease-solar), color 0.18s var(--ease-solar);
+}
+.titlebar-btn svg { width: 13px; height: 13px; }
+.titlebar-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.titlebar-btn-close:hover { background: #e53e3e; color: white; }
+
+/* --- Indicador global de "instancia en ejecución" (barra de título) --- */
+.titlebar-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.titlebar-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.titlebar-status.running {
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.35);
+  color: var(--success);
+}
+.titlebar-status.running .titlebar-status-dot {
+  background: var(--success);
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+  animation: titlebar-status-pulse 1.6s ease-out infinite;
+}
+@keyframes titlebar-status-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+  70% { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+/* --- Sidebar: riel angosto solo con íconos, estilo Modrinth App --- */
+.sidebar {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 0;
+  gap: 4px;
+}
+
+.sidebar-icon-btn {
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  position: relative;
+  transition: background 0.22s var(--ease-solar), color 0.22s var(--ease-solar), box-shadow 0.22s var(--ease-solar);
+}
+.sidebar-icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sidebar-icon-btn.active {
+  background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  color: var(--accent-primary-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary) 28%, transparent), var(--glow-accent);
+}
+
+.sidebar-divider {
+  width: 32px;
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 8px 0;
+}
+
+.sidebar-instance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  overflow-y: auto;
+  /* Nada de max-height fijo (eso era lo que se cruzaba fácil y de forma
+     arbitraria). En vez de eso, esta lista es la única con flex-shrink
+     dentro de la columna del sidebar: mientras las instancias entren en
+     el alto disponible, ocupa su tamaño natural y no scrollea. Solo si
+     el sidebar se queda sin alto (muchas instancias, ventana bajita) se
+     achica hasta el espacio que le queda y ahí sí aparece la scrollbar,
+     de forma real y estable, no por culpa del hover. */
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+/* Caja de tamaño FIJO (no se transforma nunca) que envuelve cada ícono
+   de instancia y el botón "+". El scale del whileHover vive en un
+   motion.div/motion.button de ADENTRO; por más que crezca al pasar el
+   cursor, el overflow:hidden de acá lo recorta a estos 54x54px fijos.
+   Como esta caja nunca cambia de tamaño, su aporte a la altura de
+   .sidebar-instance-list es siempre el mismo, con o sin hover — así la
+   scrollbar no puede aparecer/desaparecer por culpa del hover, sin
+   depender de ningún detalle interno del motor de render (a diferencia
+   de will-change, que no lo garantizaba). 54px da margen de sobra para
+   el aro del estado activo (~6px) y la insignia del mod loader. Sin
+   margin negativo esta vez: son 54px "de verdad" en el layout, así que
+   entre ícono e ícono se ve un poco más de aire que antes, pero nunca
+   se corre nada. */
+.sidebar-instance-slot {
+  width: 54px;
+  height: 54px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.sidebar-instance-icon {
+  display: flex;
+  text-decoration: none;
+  flex-shrink: 0;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+.sidebar-instance-icon:hover { opacity: 1; }
+.sidebar-instance-icon.active { opacity: 1; box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 3.5px var(--accent-primary); border-radius: 10px; }
+
+/* --- Topbar: navegación atrás/adelante, breadcrumb y selector de cuenta --- */
+.content-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.topbar {
+  height: 68px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+}
+
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topbar-nav-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: var(--bg-panel-alt);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.topbar-nav-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.topbar-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.topbar-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 6px 12px 6px 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.topbar-account:hover { border-color: var(--accent-secondary); background: var(--bg-hover); }
+
+.topbar-account-avatar {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--accent-gradient);
+  color: white;
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.16), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.topbar-account-avatar.sm { width: 28px; height: 28px; font-size: 12px; border-radius: 8px; }
+
+.topbar-account-avatar-dot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--success);
+  border: 2px solid var(--bg-panel-alt);
+}
+
+.topbar-account-avatar-empty {
+  background: transparent;
+  border: 1.5px dashed var(--border-subtle);
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+.topbar-account:hover .topbar-account-avatar-empty { border-color: var(--accent-primary); color: var(--accent-primary-hover); }
+
+.topbar-account-text { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.35; }
+.topbar-account-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.topbar-account-type { font-size: 12px; color: var(--text-muted); }
+.topbar-account-empty { font-size: 13px; color: var(--text-secondary); padding: 0 4px; }
+
+.topbar-account-wrap { position: relative; }
+.topbar-account svg { color: var(--text-secondary); flex-shrink: 0; }
+
+.topbar-account-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  z-index: 50;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: 8px;
+  animation: select-menu-in 0.12s ease-out;
+}
+
+.topbar-account-menu-header {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  padding: 6px 8px 8px;
+}
+
+.topbar-account-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-bottom: 6px;
+}
+
+.topbar-account-menu-empty { padding: 10px 8px; font-size: 12px; color: var(--text-muted); }
+
+.topbar-account-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  position: relative;
+}
+.topbar-account-option:hover { background: var(--bg-hover); }
+.topbar-account-option:hover .topbar-account-remove { opacity: 1; pointer-events: auto; }
+.topbar-account-option.selected { background: color-mix(in srgb, var(--accent-primary) 14%, transparent); }
+
+.topbar-account-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: transparent;
+  flex-shrink: 0;
+}
+.topbar-account-status-dot.active { background: var(--success); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18); }
+
+.topbar-account-option-text { flex: 1; min-width: 0; }
+.topbar-account-option-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar-account-option-type { font-size: 12px; color: var(--text-muted); }
+
+.topbar-account-remove {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.topbar-account-remove:hover { background: rgba(248, 113, 113, 0.16); color: var(--danger); }
+
+.topbar-account-add {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: transparent;
+  border: 1.5px dashed var(--border-subtle);
+  color: var(--accent-primary-hover);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 9px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.topbar-account-add:hover { background: color-mix(in srgb, var(--accent-primary) 12%, transparent); border-color: var(--accent-primary); }
+
+.main-content {
+  overflow-y: auto;
+  padding: 28px 32px 0;
+  flex: 1;
+  min-height: 0;
+}
+/* BUG FIX: .main-content es un item flex (columna) con overflow-y: auto y
+   padding propio. Cuando el contenido de adentro desborda, Chromium/Electron
+   no cuenta el padding-bottom del contenedor como parte del área scrolleable
+   — es un comportamiento conocido de flexbox con overflow, no algo específico
+   de esta vista. El resultado: cualquier pantalla larga (Explorar, el listado
+   de una instancia, etc.) llega justo hasta el borde inferior real de la
+   ventana sin margen, se ve pegada y queda muy incómoda para hacer click en
+   lo último de la lista. Un pseudo-elemento de bloque real (no solo padding)
+   sí cuenta para el scrollHeight, así que garantiza el mismo aire abajo
+   en todas las vistas sin tener que agregarlo a mano en cada una. */
+.main-content::after {
+  content: '';
+  display: block;
+  height: 28px;
+}
+
+/* --- Filas "Continuar donde quedaste" en Inicio --- */
+.jump-back-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 14px;
+  transition: border-color 0.22s var(--ease-solar), box-shadow 0.22s var(--ease-solar), background 0.22s var(--ease-solar);
+}
+.jump-back-row:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-subtle));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), var(--glow-accent);
+  background: color-mix(in srgb, var(--bg-panel) 88%, var(--accent-primary));
+}
+
+.jump-back-icon {
+  display: flex;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+
+/* --- Tarjetas grandes de modpack destacado en Inicio --- */
+.featured-modpack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 18px;
+  margin-bottom: 8px;
+}
+.featured-modpack-card {
+  overflow: hidden;
+  transition: border-color 0.25s var(--ease-solar), box-shadow 0.25s var(--ease-solar);
+}
+.featured-modpack-card:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 50%, var(--border-subtle));
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35), var(--glow-accent);
+}
+.featured-modpack-card:hover .featured-modpack-banner { transform: scale(1.06); }
+.featured-modpack-banner {
+  height: 170px;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg-panel-alt);
+  transition: transform 0.55s var(--ease-solar);
+  overflow: hidden;
+}
+
+/* --- Layout de Inicio --- */
+/* Antes era una grilla de 2 columnas (contenido + panel lateral de
+   servidores/sponsors). El panel lateral ya no existe — la lista de
+   servidores recomendados ahora vive como una sección más de la columna
+   principal (ver .mc-server-list más abajo) — así que queda en una sola
+   columna. */
+.home-layout {
+  display: block;
+}
+
+/* --- Lista de servidores recomendados, estilo pantalla de "Multijugador"
+   de Minecraft (reemplaza tanto al viejo panel de sponsors/ads como a la
+   sección "Descubre un modpack") --- */
+.mc-server-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.mc-server-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  /* Fondo oscuro con textura sutil en vez de plano, para acercarse al
+     panel de piedra/roca de la lista de servidores real sin necesitar un
+     asset de imagen. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.12)),
+    var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+}
+
+.mc-server-icon {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #2b2b2b;
+  border: 2px solid #1a1a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.mc-server-icon img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+
+.mc-server-status-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid #1a1a1a;
+  background: var(--text-muted);
+}
+.mc-server-status-dot.online { background: #55ff55; }
+.mc-server-status-dot.offline { background: #ff5555; }
+.mc-server-status-dot.loading { background: var(--text-muted); animation: server-dot-pulse 1.1s ease-in-out infinite; }
+@keyframes server-dot-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.mc-server-info { min-width: 0; flex: 1; }
+.mc-server-name {
+  font-family: 'Minecraft', var(--font-main);
+  font-size: 15px;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-server-motd {
+  margin-top: 3px;
+  font-family: 'Minecraft', var(--font-main);
+  font-size: 12px;
+  line-height: 1.5;
+  color: #aaaaaa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-server-motd-fallback { color: #7a7a7a; }
+
+/* Jugadores online + barras de señal, calcado del extremo derecho de cada
+   fila en la lista de Multijugador real. */
+.mc-server-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  color: #aaaaaa;
+}
+.mc-server-players {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-direction: row-reverse;
+  font-family: 'Minecraft', var(--font-main);
+  font-size: 13px;
+}
+
+.mc-server-signal {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 18px;
+}
+.mc-server-signal-bar {
+  width: 3px;
+  border-radius: 1px;
+  transition: background 0.2s;
+}
+.mc-server-signal-loading {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--text-muted);
+  animation: mc-signal-spin 0.8s linear infinite;
+}
+@keyframes mc-signal-spin { to { transform: rotate(360deg); } }
+
+.mc-server-actions { position: relative; flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.mc-server-play-btn { padding: 9px 16px; font-size: 13px; }
+
+/* IP del servidor + botón de copiar, reemplaza al viejo botón "Agregar a
+   todas las instancias". */
+.mc-server-ip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  color: #cfcfcf;
+}
+.mc-server-ip-text {
+  font-family: 'Minecraft', var(--font-main);
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  /* Ahora es un <button>, no un <span>: clickear la IP en sí también la
+     copia, no solo el botoncito de al lado — reset de los estilos nativos
+     de botón para que siga viéndose como texto plano hasta que se lo toca. */
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+.mc-server-ip-text:hover,
+.mc-server-ip-text:focus-visible { color: var(--text-primary); outline: none; }
+.mc-server-ip-text.copied { color: #55ff55; }
+.mc-server-ip-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mc-server-ip-copy:hover { background: var(--bg-hover); color: var(--text-primary); }
+.mc-server-ip-copy.copied { color: #55ff55; }
+
+.mc-server-instance-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  min-width: 180px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+
+/* --- Toolbar de la pestaña "Contenido" de una instancia (búsqueda, filtros
+   rápidos, ordenar, subir/explorar), inspirada en la app de Modrinth --- */
+.content-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.content-search {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  color: var(--text-muted);
+  transition: border-color 0.15s;
+}
+.content-search:focus-within { border-color: var(--accent-primary); }
+.content-search input {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 9px 0;
+}
+.content-search input:focus { outline: none; }
+
+.content-filters-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.content-filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.chip {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s var(--ease-solar), border-color 0.2s var(--ease-solar), color 0.2s var(--ease-solar), transform 0.2s var(--ease-solar);
+}
+.chip:hover { border-color: var(--accent-secondary); color: var(--text-primary); transform: translateY(-1px); }
+.chip.active { background: var(--accent-gradient); border-color: transparent; color: white; }
+
+/* Estado vacío genérico (sin contenido instalado, sin mundos, sin
+   capturas, etc.), con el mismo look que usa la app real de Modrinth:
+   ícono grande y apagado, título en negrita, subtítulo tenue y las
+   acciones principales debajo — en vez de un simple párrafo de texto. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 56px 24px;
+  color: var(--text-muted);
+}
+.empty-state-icon {
+  color: var(--text-muted);
+  opacity: 0.55;
+  margin-bottom: 18px;
+}
+.empty-state-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+.empty-state-subtitle {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+.empty-state-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.content-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s, background 0.15s;
+}
+.content-row:hover { border-color: var(--accent-secondary); }
+
+/* Fila clickeable (lleva al proyecto en el explorador): antes había que
+   acertarle a un botón de brújula chico; ahora toda la fila responde,
+   con su propio hover/foco para que quede claro que es interactiva. */
+.content-row.clickable { cursor: pointer; }
+.content-row.clickable:hover { background: var(--bg-hover); }
+.content-row.clickable:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+.content-row-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+.content-row-icon-fallback { display: flex; align-items: center; justify-content: center; }
+
+.content-row-info { flex: 1; min-width: 0; }
+.content-row-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.content-row-subtitle {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 3px;
+}
+
+.content-row-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel-alt);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--accent-secondary); }
+.icon-btn.danger:hover { background: rgba(248, 113, 113, 0.14); color: var(--danger); border-color: rgba(248, 113, 113, 0.4); }
+
+/* --- Modal genérico (usado por AccountModal, reutilizable en otros) --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: overlay-in 0.22s var(--ease-solar);
+}
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-card {
+  width: 440px;
+  max-height: 82vh;
+  overflow-y: auto;
+  padding: 22px;
+  animation: select-menu-in 0.22s var(--ease-solar);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.modal-title { margin: 0; font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.modal-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+.modal-close-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong, #454650);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.modal-close-btn:hover { background: rgba(248, 113, 113, 0.16); border-color: var(--danger); color: var(--danger); }
+
+.pill-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  margin: 18px 0 16px;
+}
+
+.pill-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.pill-tab:hover { color: var(--text-primary); }
+.pill-tab.active { background: var(--bg-panel-alt); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+
+.modal-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 20px 0 10px;
+}
+
+.account-list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  margin-bottom: 6px;
+  transition: border-color 0.15s;
+}
+.account-list-row.active { border-color: rgba(var(--accent-rgb), 0.5); background: rgba(var(--accent-rgb), 0.08); }
+
+.account-list-info { flex: 1; min-width: 0; }
+.account-list-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-list-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+
+.account-list-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.account-list-use-btn {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 7px;
+}
+.account-list-remove-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel-alt);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.account-list-remove-btn:hover { background: rgba(248, 113, 113, 0.14); color: var(--danger); border-color: rgba(248, 113, 113, 0.4); }
+
+/* --- Modal de cuentas: rediseñado para depender de iconos/tarjetas en vez
+   de párrafos explicativos (ver AccountModal.jsx). --- */
+.account-modal { width: 420px; }
+
+.auth-method-grid {
+  /* Antes "grid-template-columns: 1fr 1fr": cada tarjeta ocupaba la mitad
+     del modal entero, mucho más ancho de lo que su contenido (un ícono y
+     una palabra) necesita. Con flex + centrado, cada tarjeta mide lo que
+     mide de verdad (ver max-width abajo) y quedan agrupadas al centro en
+     vez de estiradas de punta a punta. */
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 18px 0 16px;
+}
+.auth-method-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 168px;
+  /* Antes en columna (ícono arriba, texto abajo) con más padding vertical:
+     eso es lo que las hacía altas. En fila (ícono al lado del texto) y con
+     padding vertical mínimo quedan bien bajitas sin perder ancho. */
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s var(--ease-solar), background 0.15s var(--ease-solar),
+    color 0.15s, box-shadow 0.15s var(--ease-solar);
+}
+.auth-method-card:hover { border-color: var(--accent-secondary); color: var(--text-primary); }
+.auth-method-card.active {
+  border-color: var(--accent-primary);
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--text-primary);
+  box-shadow: var(--glow-accent);
+}
+.auth-method-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Círculo con degradé sutil en vez del cuadrado liso de antes: le da más
+     peso "de marca" al ícono sin agregar ningún elemento nuevo. */
+  background: linear-gradient(155deg, var(--bg-panel-alt), var(--bg-hover));
+  border-radius: 50%;
+  color: var(--accent-primary-hover);
+  transition: background 0.15s var(--ease-solar);
+}
+.auth-method-card.active .auth-method-icon {
+  background: linear-gradient(155deg, rgba(var(--accent-rgb), 0.22), rgba(var(--accent-rgb), 0.1));
+}
+/* Chequeo en la esquina de la tarjeta activa: refuerza cuál de las dos
+   está elegida sin depender solo del borde/fondo violeta (que dos tarjetas
+   una al lado de la otra, chicas, pueden hacer menos obvio a simple
+   vista). */
+.auth-method-check {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-primary);
+  color: var(--bg-app);
+  box-shadow: 0 0 0 3px var(--bg-panel);
+}
+
+
+.auth-form { display: flex; flex-direction: column; gap: 10px; }
+.auth-form input { width: 100%; }
+
+.auth-form-advanced-toggle {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+  margin-top: -2px;
+}
+.auth-form-advanced-toggle:hover { color: var(--text-secondary); }
+
+.auth-form-error { font-size: 12.5px; color: var(--danger); }
+
+.auth-microsoft-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px;
+  /* Antes blanco sólido con texto oscuro: quedaba como un cartel pegado
+     encima de una interfaz que es oscura en todo lo demás. Ahora sigue el
+     mismo lenguaje visual que el resto del launcher (panel oscuro +
+     borde), y el logo de 4 cuadrados sigue dando el reconocimiento de
+     marca sin necesitar el fondo blanco de Microsoft para funcionar. */
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: filter 0.15s, border-color 0.15s, transform 0.15s var(--ease-solar), box-shadow 0.2s var(--ease-solar);
+}
+.auth-microsoft-btn:hover { border-color: var(--accent-secondary); filter: brightness(1.08); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3); transform: translateY(-1px); }
+.auth-microsoft-btn:active { transform: scale(0.98); }
+.auth-microsoft-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+.account-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+.account-list-row { cursor: pointer; }
+.account-list-row.active { cursor: default; }
+.account-list-type {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.account-list-active-check {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--success);
+}
+
+/* --- Modal "Crear instancia": secciones con esquinas más rectas (look más
+   técnico/moderno) en vez del --radius-lg redondeado que usa el resto de la
+   app. Se sobreescriben las variables de radio SOLO dentro de este modal
+   (no globalmente), así el resto de la interfaz no cambia. --- */
+.modal-card.instance-modal {
+  width: 480px;
+  /* El contenido (3 secciones + selector de ícono + slider) entraba justo
+     dentro del max-height: 82vh heredado de .modal-card, así que en la
+     mayoría de resoluciones aparecía scroll vertical dentro del modal.
+     Se sube el máximo y se recorta el padding/gaps de las secciones (ver
+     más abajo) para que todo el formulario entre sin necesidad de scroll
+     en una ventana de tamaño normal. */
+  max-height: 94vh;
+  padding: 18px 22px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 4px;
+}
+
+/* --- "Crear instancia" como asistente de varios pasos (paso 1: elegir
+   tipo). Cada opción es una fila grande con ícono + título + descripción,
+   igual que "Custom setup / Install modpack / Import instance" en
+   Modrinth App, en vez de arrancar directo en el formulario de siempre. --- */
+.instance-type-list-label {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.instance-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.instance-type-option {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  width: 100%;
+  padding: 15px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background 0.15s, border-color 0.15s, transform 0.12s, box-shadow 0.15s;
+}
+.instance-type-option:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-secondary);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+.instance-type-option:hover .instance-type-option-icon {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary-hover);
+}
+.instance-type-option:active { transform: scale(0.99); }
+
+.instance-type-option-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.16), rgba(var(--accent-rgb), 0.04));
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--accent-primary-hover);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.instance-type-option-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+  letter-spacing: -0.01em;
+}
+.instance-type-option-desc { font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
+
+.instance-type-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin: 16px 2px 0;
+  line-height: 1.5;
+}
+
+/* --- Paso "Custom setup": chips de loader + pestañas Stable/Latest/Other
+   para la versión del loader. --- */
+.loader-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.loader-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px 6px 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.loader-chip:hover { background: var(--bg-hover); color: var(--text-primary); }
+/* Antes esto usaba var(--success) (verde) — un color que no aparece en
+   ningún otro control "seleccionado" de la app (todos usan el acento
+   violeta, ver .chip.active). Se unifica con ese mismo lenguaje visual. */
+.loader-chip.selected {
+  background: color-mix(in srgb, var(--accent-primary) 16%, transparent);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary) 30%, transparent);
+}
+.loader-chip.selected svg:last-child { color: var(--accent-primary-hover); }
+.loader-chip-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.loader-channel-tabs { display: flex; gap: 8px; }
+.loader-channel-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.loader-channel-tab:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.loader-channel-tab.selected {
+  background: color-mix(in srgb, var(--accent-primary) 16%, transparent);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary) 30%, transparent);
+}
+.loader-channel-tab:disabled { opacity: 0.4; cursor: default; }
+
+/* --- Paso "Install modpack": buscador con autocompletado + "or" + dos
+   botones (importar archivo / explorar Modrinth). --- */
+.modpack-search-input-wrap { position: relative; }
+.modpack-search-input-wrap input { width: 100%; padding-right: 34px; }
+.modpack-search-input-wrap svg {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.modpack-search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  /* El dropdown vive dentro de .modal-card, que también tiene su propio
+     scroll (overflow-y: auto). Sin esto, al llegar al tope/final del
+     scroll del dropdown la rueda del mouse "se pasa" al scroll del modal
+     por debajo, y ambos scrolls terminan peleándose entre sí (se traba,
+     salta, no baja fluido). overscroll-behavior: contain evita que el
+     scroll se propague al padre una vez que el dropdown llegó a su límite. */
+  overscroll-behavior: contain;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+  padding: 6px;
+}
+
+.modpack-search-empty { padding: 10px 8px; font-size: 12.5px; color: var(--text-muted); }
+
+.modpack-search-dropdown-heading {
+  padding: 6px 8px 8px;
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.modpack-search-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.modpack-search-item:hover:not(:disabled) { background: var(--bg-hover); }
+.modpack-search-item:disabled { opacity: 0.6; cursor: default; }
+.modpack-search-item img { width: 26px; height: 26px; border-radius: var(--radius-sm); object-fit: cover; flex-shrink: 0; }
+.modpack-search-item-fallback {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-alt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.modpack-search-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.instance-modal-or-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.instance-modal-or-divider span { flex: 1; height: 1px; background: var(--border-subtle); }
+
+/* --- Paso "Import instance": lista de rutas agregadas. --- */
+.import-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.import-path-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* --- Pestaña "Capturas" de una instancia: grilla de miniaturas + visor
+   modal con navegación y acciones, en vez de la simple grilla estática
+   anterior sin forma de ver la imagen en grande. --- */
+.screenshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.screenshot-thumb {
+  position: relative;
+  padding: 0;
+  margin: 0;
+  appearance: none;
+  font: inherit;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-panel);
+  cursor: pointer;
+  aspect-ratio: 16 / 9;
+  transition: border-color 0.15s;
+}
+.screenshot-thumb:hover { border-color: var(--accent-secondary); }
+.screenshot-thumb img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.screenshot-thumb-placeholder { width: 100%; height: 100%; background: var(--bg-panel-alt); }
+
+.screenshot-thumb-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 16, 0);
+  color: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+.screenshot-thumb:hover .screenshot-thumb-overlay {
+  background: rgba(10, 8, 16, 0.45);
+  color: white;
+}
+
+/* --- Pestaña "Mundos" de una instancia: tarjetas con miniatura del mundo
+   (icon.png), chips de qué dimensiones tiene generadas (Overworld/Nether/
+   End), badges de configuración y menú de acciones (configurar, duplicar,
+   exportar para servidor, abrir carpeta, eliminar). Antes era una simple
+   lista de texto con nombre + fecha, sin imagen ni forma de tocar nada. --- */
+.worlds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.world-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-panel);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: border-color 0.22s var(--ease-solar), box-shadow 0.22s var(--ease-solar);
+}
+.world-card:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-subtle));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3), var(--glow-accent);
+}
+
+.world-card-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: var(--bg-panel-alt);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.world-card-thumb img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  /* Los icon.png de Minecraft son de 64x64 en baja resolución: se
+     desactiva el suavizado para que se vean nítidos (pixel art) en vez de
+     borrosos al estirarlos a la miniatura grande de la tarjeta. */
+  image-rendering: pixelated;
+}
+.world-card-thumb-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: radial-gradient(circle at 30% 20%, rgba(var(--accent-rgb), 0.16), transparent 65%), var(--bg-panel-alt);
+}
+
+.world-card-dims {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 6px;
+}
+.world-dim-chip {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 14, 0.72);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+/* Overworld siempre está presente (es el mundo en sí), así que su chip va
+   siempre "activo"; Nether/End solo se resaltan si el jugador ya generó
+   esa dimensión (carpeta DIM-1/DIM1 presente). */
+.world-dim-chip.active { opacity: 1; color: var(--accent-primary-hover); border-color: rgba(var(--accent-rgb), 0.4); }
+.world-dim-chip.nether.active { color: #fb923c; border-color: rgba(251, 146, 60, 0.45); background: rgba(251, 146, 60, 0.16); }
+.world-dim-chip.end.active { color: #c084fc; border-color: rgba(192, 132, 252, 0.45); background: rgba(192, 132, 252, 0.16); }
+
+.world-card-menu-wrap {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}
+.world-card-menu-wrap .instance-card-menu-wrap.inline .instance-card-menu-btn {
+  /* Este selector encadena más clases a propósito: la regla genérica
+     ".instance-card-menu-wrap.inline .instance-card-menu-btn" (3 clases)
+     le ganaba en especificidad a la que había acá antes (2 clases) y la
+     dejaba con fondo/borde transparentes — por eso el botón de los 3
+     puntitos casi no se veía sobre la miniatura del mundo. Con 4 clases
+     encadenadas esta regla gana siempre, sin depender del orden en el CSS. */
+  opacity: 1;
+  transform: none;
+  width: 30px;
+  height: 30px;
+  background: rgba(8, 8, 12, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+}
+.world-card-menu-wrap .instance-card-menu-wrap.inline .instance-card-menu-btn:hover {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.5), var(--glow-accent);
+}
+
+.world-card-body {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+.world-card-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.world-card-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+.badge-hardcore { background: rgba(248, 113, 113, 0.14); color: var(--danger); border-color: rgba(248, 113, 113, 0.35); }
+
+.world-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+.world-card-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.world-card-stat svg { flex-shrink: 0; opacity: 0.85; }
+
+/* Fila de la semilla dentro del modal "Configurar mundo": solo se muestra
+   si se pudo leer del level.dat, con botón para copiarla (nadie la
+   transcribe a mano). */
+.world-seed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.world-seed-row code {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.screenshot-lightbox {
+  width: min(1300px, 95vw);
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  animation: select-menu-in 0.14s ease-out;
+}
+
+.screenshot-lightbox-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.screenshot-lightbox-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14.5px;
+  word-break: break-all;
+}
+.screenshot-lightbox-date { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+.screenshot-lightbox-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  overflow: hidden;
+}
+/* Con zoom activado la imagen ocupa más que el visor: se habilita scroll
+   dentro del cuerpo (además del arrastre con el mouse, ver el JS del
+   componente) para poder recorrerla, en vez de quedar recortada sin forma
+   de ver el resto. */
+.screenshot-lightbox-body.zoomed {
+  overflow: auto;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+/* Antes esto usaba max-width/max-height, que solo ACHICAN una imagen más
+   grande que el visor — una captura de mod subida a menor resolución que
+   82vh se quedaba en su tamaño diminuto original, sin agrandarse nunca, y
+   como el zoom simplemente quitaba ese mismo límite (que ya no aplicaba),
+   no cambiaba nada a la vista: por eso "el zoom no hacía nada" y las
+   imágenes chicas se veían chicas. Con width/height:100% + object-fit:
+   contain la imagen siempre llena el visor (recién ahí escalando hacia
+   arriba también), sea cual sea su resolución original. */
+.screenshot-lightbox-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  cursor: zoom-in;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+/* El zoom real: agranda el "marco" de ajuste al doble en cada eje (el
+   contenido interno mantiene su proporción vía object-fit) y, junto con el
+   overflow:auto de arriba + el arrastre con mouse del componente, deja
+   recorrer toda la imagen en vez de solo mostrarla a tamaño nativo. */
+.screenshot-lightbox-image.zoomed {
+  width: 220%;
+  height: 220%;
+  cursor: grab;
+}
+.screenshot-lightbox-image.zoomed.dragging { cursor: grabbing; }
+.screenshot-lightbox-loading { color: var(--text-muted); font-size: 13px; padding: 60px 0; }
+
+.screenshot-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 8, 16, 0.55);
+  color: white;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.screenshot-lightbox-nav:hover { background: rgba(var(--accent-rgb), 0.55); }
+.screenshot-lightbox-nav.prev { left: 14px; }
+.screenshot-lightbox-nav.next { right: 14px; }
+
+.screenshot-lightbox-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.screenshot-lightbox-counter { font-size: 12px; color: var(--text-muted); }
+
+/* Los de "Abrir carpeta" / "Eliminar" quedaban casi invisibles con el
+   .btn-secondary genérico (gris muy parecido al fondo del visor): más
+   contraste acá para que se noten a simple vista. */
+.screenshot-lightbox-footer .btn-secondary {
+  background: var(--bg-hover);
+  border-color: var(--border-strong, #454650);
+}
+.screenshot-lightbox-footer .btn-secondary:hover {
+  border-color: var(--accent-secondary);
+  background: rgba(var(--accent-rgb), 0.14);
+}
+.screenshot-lightbox-footer .btn-danger {
+  padding: 10px 18px;
+}
+
+.instance-form-section {
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 11px 16px;
+  margin-bottom: 10px;
+}
+.instance-form-section:last-of-type { margin-bottom: 12px; }
+
+.instance-form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 9px;
+}
+.instance-form-section-title svg { color: var(--accent-primary-hover); }
+
+.instance-form-field { margin-bottom: 10px; }
+.instance-form-field:last-child { margin-bottom: 0; }
+
+.instance-form-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.instance-form-row { display: flex; gap: 10px; }
+.instance-form-row .instance-form-field { margin-bottom: 0; }
+
+/* --- Selector de ícono personalizado para instancias (crear/editar) --- */
+.icon-picker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.icon-picker-preview {
+  position: relative;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 15px;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.icon-picker-preview:hover { transform: translateY(-1px); }
+.icon-picker-preview.drag-over { box-shadow: 0 0 0 3px var(--accent-primary); border-radius: 15px; }
+
+.icon-picker-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 16, 0);
+  color: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+.icon-picker-preview:hover .icon-picker-overlay {
+  background: rgba(10, 8, 16, 0.5);
+  color: white;
+}
+
+.icon-picker-actions {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.icon-picker-title { font-size: 13px; font-weight: 600; }
+.icon-picker-hint { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+
+/* --- Estudio de íconos (fondo + símbolo, o imagen personalizada) --- */
+.icon-studio-modal { width: 480px; }
+
+.icon-studio-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 18px 0 4px;
+}
+
+.icon-studio-preview {
+  position: relative;
+  flex-shrink: 0;
+  width: 76px;
+  height: 76px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.icon-studio-preview-img { width: 100%; height: 100%; object-fit: cover; }
+.icon-studio-preview .instance-icon-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px var(--bg-panel);
+}
+
+.icon-studio-preview-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.swatch {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.swatch:hover { transform: translateY(-1px); }
+.swatch.active { box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 3.5px var(--accent-primary); }
+
+.swatch-custom {
+  background: conic-gradient(from 180deg, #f87171, #fbbf24, #34d399, #38bdf8, #a78bfa, #f87171);
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.symbol-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.symbol-tile {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+.symbol-tile:hover { transform: translateY(-1px); border-color: var(--border-strong, #454650); }
+.symbol-tile.active { border-color: var(--accent-primary); background: rgba(var(--accent-rgb), 0.12); }
+
+.icon-studio-dropzone {
+  border: 1.5px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.icon-studio-dropzone:hover,
+.icon-studio-dropzone.drag-over { border-color: var(--accent-primary); background: rgba(var(--accent-rgb), 0.06); }
+
+.icon-studio-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.instance-form-error {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 12.5px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+}
+
+.crash-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+}
+.crash-fallback svg { color: var(--danger); }
+.crash-fallback h3 { margin: 0; color: var(--text-primary); }
+.crash-fallback p { margin: 0; font-size: 13px; max-width: 420px; }
+
+.btn-primary {
+  background: var(--accent-gradient);
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.2s var(--ease-solar), box-shadow 0.25s var(--ease-solar);
+}
+.btn-primary:hover { filter: brightness(1.1); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent-primary) 40%, transparent), var(--glow-accent); transform: translateY(-1px); }
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.55; cursor: default; filter: none; box-shadow: none; transform: none; }
+
+.btn-secondary {
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.btn-secondary:hover { background: var(--bg-hover); border-color: var(--accent-secondary); transform: translateY(-1px); }
+.btn-secondary:active { transform: scale(0.98); }
+.btn-secondary:disabled { opacity: 0.55; cursor: default; transform: none; }
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--danger);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.btn-danger:hover { background: rgba(248, 113, 113, 0.22); border-color: var(--danger); box-shadow: 0 4px 14px rgba(248, 113, 113, 0.2); transform: translateY(-1px); }
+.btn-danger:active { transform: scale(0.98); }
+.btn-danger:disabled { opacity: 0.55; cursor: default; transform: none; }
+
+/* --- Zona de peligro (eliminar instancia, etc.) --- */
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: var(--radius-lg);
+  background: rgba(248, 113, 113, 0.06);
+}
+.danger-zone-title { font-weight: 700; color: var(--danger); margin-bottom: 4px; }
+.danger-zone-hint { font-size: 12px; color: var(--text-secondary); max-width: 320px; }
+
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+
+/* Nota: antes .card:hover pintaba un borde y glow morado en TODO elemento
+   con clase "card" al pasar el mouse por encima, incluyendo paneles
+   estáticos que no son clickeables (secciones del modal "Crear instancia",
+   tarjetas de Ajustes, filas informativas, etc.). Ahí se veía como un efecto
+   suelto y sin sentido, no como feedback de interacción. Las tarjetas que sí
+   son clickeables (jump-back-row, featured-modpack-card, result-row, etc.)
+   ya tienen su propio feedback de hover específico, así que se quita este
+   efecto genérico en vez de dejarlo aplicado a todo por igual. */
+
+.grid-instances {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.instance-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  font-family: var(--font-main);
+  text-align: left;
+  border: 1px solid var(--border-subtle);
+  transition: border-color 0.22s var(--ease-solar), box-shadow 0.22s var(--ease-solar), background 0.22s var(--ease-solar);
+}
+.instance-card:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-subtle));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3), var(--glow-accent);
+}
+
+/* --- Menú de opciones (⋯) sobre las tarjetas de instancia --- */
+.instance-card-menu-wrap {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+}
+.instance-card-menu-wrap.inline {
+  position: relative;
+  top: auto;
+  right: auto;
+  flex-shrink: 0;
+}
+.instance-card-menu-wrap.inline .instance-card-menu-btn { opacity: 1; transform: none; background: transparent; border-color: transparent; }
+.instance-card-menu-wrap.inline .instance-card-menu-btn:hover { background: var(--bg-hover); border-color: var(--border-subtle); }
+.instance-card-menu-wrap.inline .instance-card-menu { right: 0; left: auto; }
+
+.instance-card-menu-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(23, 24, 28, 0.72);
+  backdrop-filter: blur(4px);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.15s, transform 0.15s, background 0.15s, color 0.15s;
+}
+.instance-card:hover .instance-card-menu-btn,
+.jump-back-row:hover .instance-card-menu-btn,
+.instance-card-menu-wrap:has(.instance-card-menu) .instance-card-menu-btn {
+  opacity: 1;
+  transform: translateY(0);
+}
+.instance-card-menu-btn:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--accent-secondary); }
+
+.instance-card-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 190px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  animation: select-menu-in 0.12s ease-out;
+}
+
+.instance-card-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border-radius: 7px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.instance-card-menu-item:hover { background: var(--bg-hover); }
+.instance-card-menu-item.danger { color: var(--danger); }
+.instance-card-menu-item.danger:hover { background: rgba(248, 113, 113, 0.14); }
+
+.instance-card-new {
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  border: 1.5px dashed var(--border-subtle);
+  background: transparent;
+  box-shadow: none;
+  min-height: 148px;
+}
+.instance-card-new:hover { border-color: var(--accent-primary); color: var(--accent-primary-hover); }
+
+.instance-card-new-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1.5px dashed var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+
+/* --- Info rápida (tiempo jugado / contenido / peso) en cada tarjeta de
+   instancia — antes la tarjeta solo mostraba versión y loader. --- */
+.instance-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  width: 100%;
+}
+.instance-card-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.instance-card-stat svg { flex-shrink: 0; opacity: 0.85; }
+
+.badge {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: rgba(var(--accent-rgb), 0.15);
+  color: var(--accent-primary-hover);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+}
+
+input, select {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-main);
+  transition: border-color 0.15s;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent-primary); }
+
+/* --- Select personalizado (reemplaza el <select> nativo, que en Windows
+   no se puede restylear de forma consistente por más CSS que se le ponga) --- */
+.custom-select { position: relative; }
+.custom-select.disabled { opacity: 0.6; pointer-events: none; }
+
+.custom-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-main);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.custom-select-trigger:hover { border-color: var(--accent-secondary); }
+.custom-select-placeholder { color: var(--text-muted); }
+
+.custom-select-arrow { color: var(--text-secondary); transition: transform 0.15s; flex-shrink: 0; }
+.custom-select-arrow.open { transform: rotate(180deg); }
+
+.custom-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  animation: select-menu-in 0.12s ease-out;
+}
+
+@keyframes select-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.custom-select-option {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.custom-select-option:hover { background: var(--bg-hover); color: var(--text-primary); }
+.custom-select-option.selected { background: rgba(var(--accent-rgb), 0.18); color: var(--accent-primary-hover); }
+.custom-select-option.disabled { color: var(--text-muted); cursor: default; }
+.custom-select-option.disabled:hover { background: none; }
+
+/* --- Checkbox personalizado --- */
+.custom-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.custom-checkbox-row input[type='checkbox'] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.custom-checkbox-box {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--bg-panel-alt);
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.12s, border-color 0.12s;
+}
+.custom-checkbox-row input:checked + .custom-checkbox-box {
+  background: var(--accent-gradient);
+  border-color: var(--accent-primary);
+}
+.custom-checkbox-row input:checked + .custom-checkbox-box::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 1.5px;
+  width: 4px;
+  height: 8px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.facet-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  color: var(--accent-primary-hover);
+  flex-shrink: 0;
+}
+.facet-icon svg { width: 100%; height: 100%; }
+
+.instance-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.instance-icon-custom {
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg-panel-alt);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Placeholder "sin ícono": mismo verde y mismo glifo de caja para toda
+   instancia que no subió una imagen propia (antes cada una tenía un
+   degradé de color distinto generado a partir de su nombre). */
+.instance-icon-default {
+  background: linear-gradient(155deg, #1bd96a, #14a854);
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.instance-icon-badge {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  border: 1.5px solid var(--bg-panel);
+  overflow: hidden;
+}
+.instance-icon-badge svg { display: block; }
+.add-content-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.16), rgba(var(--accent-rgb), 0.08));
+  border: 1.5px solid rgba(var(--accent-rgb), 0.4);
+  text-decoration: none;
+  color: inherit;
+  margin-bottom: 18px;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.add-content-btn:hover {
+  border-color: var(--accent-primary);
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.24), rgba(var(--accent-rgb), 0.12));
+}
+.add-content-btn:active { transform: scale(0.99); }
+
+.add-content-btn-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--accent-gradient);
+  color: white;
+  font-size: 22px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.add-content-btn-title { font-family: var(--font-display); font-weight: 700; font-size: 16px; color: var(--text-primary); }
+.add-content-btn-subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+.pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Mismo selector de página, repetido arriba de los resultados: sin el
+   borde/margen superior (que tiene sentido como separador al pie, pero se
+   vería como una línea suelta pegada abajo del toolbar) y con un poco más
+   de aire debajo para separarlo de la primera tarjeta de resultado. */
+.pagination.pagination-top {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  margin-bottom: 14px;
+}
+
+.pagination-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.pagination-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.pagination-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pagination-btn.active { background: var(--accent-gradient); border-color: var(--accent-primary); color: white; font-weight: 700; }
+
+.pagination-ellipsis { color: var(--text-muted); padding: 0 2px; }
+
+.pagination-jump {
+  display: flex;
+  gap: 6px;
+  margin-left: 8px;
+}
+.pagination-jump input { width: 64px; padding: 6px 8px; }
+.pagination-jump button { padding: 6px 12px; }
+
+.pagination-summary {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.target-picker { position: relative; }
+
+.target-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-panel-alt);
+  border: 1.5px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 6px 12px 6px 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  min-width: 200px;
+  height: 45px;
+}
+.target-picker-trigger:hover { border-color: var(--accent-secondary); background: var(--bg-hover); }
+
+.target-picker-text { display: flex; flex-direction: column; text-align: left; margin-right: auto; }
+.target-picker-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.target-picker-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.target-picker-empty { font-size: 13px; color: var(--text-muted); margin-right: auto; }
+.target-picker-trigger svg { color: var(--text-secondary); flex-shrink: 0; }
+
+.target-picker-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
+
+.target-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.target-picker-option:hover { background: var(--bg-hover); }
+.target-picker-option.selected { background: rgba(var(--accent-rgb), 0.16); }
+.target-picker-option-name { font-size: 13px; font-weight: 600; }
+.target-picker-option-meta { font-size: 12px; color: var(--text-muted); }
+
+/* --- Detalle de proyecto: encabezado con contexto de instancia, tarjeta
+   del mod/pack y tabs, estilo "instalando contenido" --- */
+.project-detail-topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.project-detail-back-btn {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.project-detail-back-btn:hover { background: var(--bg-hover); border-color: var(--accent-secondary); transform: translateX(-2px); }
+.project-detail-topbar-title { margin: 0; font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
+.project-detail-topbar-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.topbar-sub-item { display: inline-flex; align-items: center; gap: 5px; }
+.project-detail-topbar-sub .dot,
+.project-detail-stats .dot { color: var(--text-muted); }
+
+.project-detail-card {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.project-detail-icon { width: 84px; height: 84px; border-radius: 16px; flex-shrink: 0; object-fit: cover; }
+.project-detail-info { flex: 1; min-width: 240px; }
+.project-detail-title { margin: 0; font-size: 20px; font-weight: 800; }
+.project-detail-description { color: var(--text-secondary); margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; }
+.project-detail-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.project-detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 220px;
+  align-items: stretch;
+}
+.project-detail-installed-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.project-detail-installed-actions .btn-secondary { flex: 1; justify-content: center; }
+.instance-card-menu-wrap.inline.project-detail-menu-wrap .instance-card-menu-btn {
+  width: 41px;
+  height: 41px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel-alt);
+}
+.instance-card-menu-wrap.inline.project-detail-menu-wrap .instance-card-menu-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-secondary);
+}
+
+.project-detail-tabs { max-width: 420px; }
+.project-detail-gallery-card { padding: 18px; }
+
+/* --- Detalle de proyecto: contenido + barra lateral de metadata --- */
+.project-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 24px;
+  align-items: start;
+}
+/* BUG FIX: la columna principal no tenía min-width:0, así que una tabla,
+   una imagen o incluso una sola palabra/URL sin espacios dentro de la
+   descripción del proyecto (contenido que viene tal cual del mercado, sin
+   control sobre su formato) podía forzar esa columna del grid a ser más
+   ancha que su contenido, empujando la barra lateral afuera o disparando un
+   scroll horizontal de toda la vista — se veía "roto". min-width:0 deja que
+   el grid respete el 1fr de verdad, y overflow-wrap se encarga de que texto
+   largo sin cortes se parta en vez de desbordar. */
+.project-detail-main { min-width: 0; }
+/* Ver BUG FIX en ProjectDetailView.jsx (donde se arma project-detail-layout):
+   los tres paneles de pestaña (Descripción/Galería/Versiones) están siempre
+   montados y se ocultan con esto en vez de desmontarse — así volver a una
+   pestaña nunca vuelve a pedir imágenes ni recalcula layout, siempre es el
+   mismo DOM ya pintado. */
+.tab-panel-hidden { display: none; }
+
+.project-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+}
+
+.project-sidebar-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.project-sidebar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  line-height: 1.4;
+}
+.project-sidebar-row:last-child { border-bottom: none; }
+.project-sidebar-row strong { color: var(--text-primary); font-weight: 600; text-align: right; }
+
+/* Variante para valores largos (ej. el nombre completo de una licencia):
+   antes iban al lado del label en la misma línea y, al no entrar, el
+   texto se envolvía pegado justo debajo del label sin separación — quedaba
+   todo amontonado. Acá el valor pasa a su propia línea, debajo del label,
+   con más aire y alineado a la izquierda como el resto del texto. */
+.project-sidebar-row-stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.project-sidebar-row-stack strong { text-align: left; }
+
+/* Antes era un <a href="#" onClick={preventDefault}> que no llevaba a
+   ningún lado — cada enlace ahora abre de verdad en el navegador del
+   sistema (ver openExternalLink en ProjectDetailView), y el diseño pasa de
+   texto suelto a una fila con ícono + una flechita que se desliza al
+   pasar el mouse, para que se lea como un link real y no como texto plano. */
+.project-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 8px 8px;
+  margin: 0 -8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s, color 0.15s;
+}
+.project-sidebar-link svg:first-child { flex-shrink: 0; color: var(--text-muted); transition: color 0.15s; }
+.project-sidebar-link-go { margin-left: auto; opacity: 0; transform: translateX(-3px); transition: opacity 0.15s, transform 0.15s; flex-shrink: 0; }
+.project-sidebar-link:hover {
+  background: var(--bg-hover);
+  color: var(--accent-primary-hover);
+}
+.project-sidebar-link:hover svg:first-child { color: var(--accent-primary-hover); }
+.project-sidebar-link:hover .project-sidebar-link-go { opacity: 1; transform: translateX(0); }
+
+/* --- Contenido markdown renderizado (descripción de proyecto, changelog) ---
+   marked+DOMPurify solo generan el HTML; sin estas reglas los headings,
+   listas y links salían pegados unos con otros y sin jerarquía visual. */
+.markdown-body {
+  line-height: 1.65;
+  font-size: 14px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.markdown-body > *:first-child { margin-top: 0; }
+/* Cualquier HTML embebido en la descripción del proyecto (Modrinth permite
+   HTML crudo, no solo Markdown) puede traer su propio ancho fijo; se lo
+   capea acá para que nunca desborde la tarjeta. */
+.markdown-body iframe, .markdown-body video, .markdown-body embed { max-width: 100%; }
+.markdown-body > *:last-child { margin-bottom: 0; }
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  color: var(--text-primary);
+  margin: 24px 0 12px;
+  line-height: 1.3;
+}
+.markdown-body h1 { font-size: 22px; }
+.markdown-body h2 { font-size: 19px; }
+.markdown-body h3 { font-size: 16px; }
+.markdown-body h4 { font-size: 14px; }
+
+.markdown-body p { margin: 0 0 14px; }
+
+.markdown-body ul, .markdown-body ol {
+  margin: 0 0 14px;
+  padding-left: 22px;
+}
+.markdown-body li { margin-bottom: 6px; }
+.markdown-body li > ul, .markdown-body li > ol { margin-top: 6px; margin-bottom: 0; }
+
+.markdown-body a { color: var(--accent-primary-hover); text-decoration: underline; text-underline-offset: 2px; }
+.markdown-body a:hover { color: var(--accent-primary); }
+
+.markdown-body strong { color: var(--text-primary); font-weight: 700; }
+
+.markdown-body code {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12.5px;
+  font-family: 'Fira Code', monospace;
+  color: var(--accent-primary-hover);
+}
+
+.markdown-body pre {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  overflow-x: auto;
+  margin: 0 0 16px;
+}
+.markdown-body pre code { background: none; border: none; padding: 0; color: var(--text-secondary); }
+
+.markdown-body blockquote {
+  border-left: 3px solid var(--accent-primary);
+  margin: 0 0 16px;
+  padding: 4px 16px;
+  color: var(--text-muted);
+  background: var(--bg-panel-alt);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* BUG FIX: solo tenía max-width, sin height:auto. Muchas descripciones de
+   proyecto (Modrinth permite HTML crudo, no solo Markdown) traen imágenes
+   con atributos width/height fijos en el propio <img> (ej. banners o
+   badges armados para GitHub). Con max-width:100% el navegador achica el
+   ancho para que entre en la tarjeta, pero sin height:auto mantenía el
+   height fijo original — la imagen quedaba estirada/deforme, y si además
+   fallaba la carga (dominio caído, hotlink roto, etc.) ese alto fijo se
+   veía como una caja enorme y vacía con el ícono de "imagen rota" arriba a
+   la izquierda, exactamente el "no cargan las imágenes ni nada" que se
+   veía en Modpacks. object-fit + display:block evitan además que una
+   imagen a la que sí le entra el ancho quede recortada o con un hueco de
+   espacio por debajo (alineación de línea de base por default en <img>). */
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  margin: 8px 0;
+}
+
+.markdown-body hr { border: none; border-top: 1px solid var(--border-subtle); margin: 24px 0; }
+
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 0 0 16px; font-size: 13px; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--border-subtle); padding: 8px 10px; text-align: left; }
+.markdown-body th { background: var(--bg-panel-alt); color: var(--text-primary); }
+
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+  color: var(--text-primary);
+  max-width: 340px;
+  cursor: pointer;
+  /* La entrada/salida ahora la anima framer-motion (ver ToastContainer.jsx),
+     que también le agrega la animación de salida que esto nunca tuvo. */
+}
+
+.toast-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.toast-success .toast-icon { background: rgba(52, 211, 153, 0.2); color: var(--success); }
+.toast-error .toast-icon { background: rgba(248, 113, 113, 0.2); color: var(--danger); }
+.toast-info .toast-icon { background: rgba(var(--accent-rgb), 0.2); color: var(--accent-primary-hover); }
+
+.toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 20px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s var(--ease-solar);
+}
+.toggle:active { transform: scale(0.94); }
+.toggle.on { background: var(--accent-gradient); border-color: var(--accent-primary); box-shadow: var(--glow-accent); }
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  transition: left 0.2s var(--ease-solar);
+}
+.toggle.on::after { left: 18px; }
+
+.explore-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.facet-sidebar {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  position: sticky;
+  top: 0;
+}
+
+.facet-group { margin-bottom: 18px; }
+.facet-group:last-child { margin-bottom: 0; }
+
+.facet-group-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.facet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.facet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.facet-row:hover { background: var(--bg-hover); color: var(--text-primary); }
+.facet-row input[type='checkbox'] { accent-color: var(--accent-primary); }
+
+.facet-search {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.clear-filters-btn {
+  background: none;
+  border: none;
+  color: var(--accent-primary-hover);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.results-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  gap: 10px;
+}
+
+.result-row {
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  align-items: flex-start;
+}
+
+.result-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  object-fit: cover;
+  background: var(--bg-panel-alt);
+}
+
+.result-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.result-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 120px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.installed-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-primary-hover);
+  background: rgba(var(--accent-rgb), 0.16);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  padding: 7px 14px;
+  border-radius: 999px;
+}
+
+/* --- Encabezado de un proyecto (mod/resourcepack/shader): selector de
+   instancia destino + botón instalar/instalado --- */
+/* Antes el botón de instalar/instalado vivía suelto con alignSelf:flex-end
+   dentro de una columna de 220px, así que quedaba pegado al borde derecho,
+   angosto y visualmente "cortado" respecto al selector de instancia de
+   arriba, que sí ocupa todo el ancho. Ahora ambos ocupan el mismo ancho
+   completo y quedan alineados en columna. */
+.project-header-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+}
+.installed-pill-block {
+  width: 100%;
+  height: 45px;
+  box-sizing: border-box;
+  justify-content: center;
+  padding: 0 14px;
+  font-size: 13px;
+  border-width: 1.5px;
+  border-radius: 999px;
+}
+
+/* --- Galería de un proyecto: tira con flechas (solo si hay más para ese
+   lado) + visor en grande, en vez del overflow-x mudo de antes sin ninguna
+   pista de que se podía desplazar ni forma de ampliar la imagen. --- */
+.project-gallery-wrap {
+  position: relative;
+  margin-bottom: 20px;
+}
+.project-gallery {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  scroll-behavior: smooth;
+  /* BUG FIX: sin ningún rastro de scrollbar, la tira se veía igual esté o no
+     desbordada — nada indicaba que había más imágenes para el costado más
+     allá de que la última se viera "cortada". Una scrollbar delgada y
+     siempre visible (en vez de la nativa, gruesa y oculta hasta el hover en
+     la mayoría de los navegadores) deja esa pista puesta todo el tiempo. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong, rgba(255, 255, 255, 0.25)) transparent;
+}
+.project-gallery::-webkit-scrollbar { height: 6px; }
+.project-gallery::-webkit-scrollbar-track { background: transparent; }
+.project-gallery::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+.project-gallery::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.4); }
+.project-gallery-thumb {
+  position: relative;
+  padding: 0;
+  margin: 0;
+  appearance: none;
+  font: inherit;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  height: 180px;
+  cursor: pointer;
+  background: var(--bg-panel);
+  transition: border-color 0.15s;
+}
+.project-gallery-thumb:hover { border-color: var(--accent-secondary); }
+.project-gallery-thumb img { height: 100%; width: auto; display: block; object-fit: cover; }
+.project-gallery-arrow {
+  position: absolute;
+  top: 0;
+  bottom: 10px;
+  width: 44px;
+  display: flex;
+  align-items: center;
+  border: none;
+  cursor: pointer;
+  color: white;
+  z-index: 3;
+}
+.project-gallery-arrow.prev { left: 0; justify-content: flex-start; background: linear-gradient(to right, var(--bg-app) 15%, transparent); }
+.project-gallery-arrow.next { right: 0; justify-content: flex-end; background: linear-gradient(to left, var(--bg-app) 15%, transparent); }
+.project-gallery-arrow svg {
+  width: 32px;
+  height: 32px;
+  padding: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: rgba(10, 8, 16, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: background 0.15s;
+}
+.project-gallery-arrow:hover svg { background: rgba(var(--accent-rgb), 0.65); }
+
+/* --- Consola --- */
+.console-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  background: #0d0e14;
+}
+
+.console-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-panel-alt);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.console-toolbar-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.console-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.console-status-dot.running { background: var(--success); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2); animation: console-pulse 1.4s ease-in-out infinite; }
+.console-status-dot.error { background: var(--danger); box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.2); }
+
+@keyframes console-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.console-toolbar-actions { display: flex; align-items: center; gap: 6px; }
+
+.console-toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.console-toolbar-btn:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--accent-secondary); }
+.console-toolbar-btn.active { background: rgba(var(--accent-rgb), 0.15); color: var(--accent-primary-hover); border-color: rgba(var(--accent-rgb), 0.4); }
+
+.console-view {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 4px;
+  font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #c9c2e0;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.console-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: var(--text-muted);
+  font-family: var(--font-main);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+
+.console-line {
+  display: flex;
+  gap: 10px;
+  padding: 1px 12px;
+  border-left: 2px solid transparent;
+}
+.console-line:hover { background: rgba(255, 255, 255, 0.03); }
+.console-line-index { color: #4a4460; user-select: none; flex-shrink: 0; min-width: 32px; text-align: right; }
+.console-line-text { flex: 1; min-width: 0; }
+
+.console-line.level-error { border-left-color: var(--danger); background: rgba(248, 113, 113, 0.06); }
+.console-line.level-error .console-line-text { color: #ff9d9d; }
+.console-line.level-warn { border-left-color: var(--warning); background: rgba(251, 191, 36, 0.05); }
+.console-line.level-warn .console-line-text { color: #fcd97a; }
+.console-line.level-launcher .console-line-text { color: var(--accent-primary-hover); }
+.console-line.level-info .console-line-text { color: #c9c2e0; }
+
+/* --- Barra de progreso --- */
+.progress-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-bar-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.progress-bar-label {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-bar-percent {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.progress-bar-track {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  border-radius: 20px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 20px;
+  background: var(--accent-gradient);
+  /* El width ahora lo anima framer-motion con un spring (ver
+     ProgressBar.jsx) en vez de esta transición CSS, que competía con la
+     animación de JS y hacía que los saltos grandes de % se vieran dobles. */
+  position: relative;
+  min-width: 4px;
+}
+
+.progress-bar-fill.indeterminate {
+  width: 40% !important;
+  animation: progress-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+.progress-bar-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+  animation: progress-shimmer 1.6s linear infinite;
+}
+
+@keyframes progress-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Reemplaza el círculo liso y vacío que se veía mientras la cara premium
+   todavía no bajó de Crafatar (sobre todo la primera vez que se abre el
+   selector de cuentas, antes de que el prefetch de store.js llegue a
+   completarse). Antes ese instante de espera no tenía ninguna señal visual
+   -- el avatar quedaba en blanco y parecía trabado en vez de "cargando".
+   Mismo patrón de shimmer que progress-bar-fill::after, arriba. */
+.account-avatar-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.account-avatar-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+  animation: account-avatar-shimmer 1.3s linear infinite;
+}
+
+@keyframes account-avatar-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Toast flotante de progreso de instalación, visible en cualquier vista
+   (Explorar, detalle de proyecto, etc.), ya que la instalación se dispara
+   desde varios lugares distintos de la app. */
+.install-progress-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 320px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  padding: 14px 16px;
+  z-index: 500;
+  /* Entrada/salida animadas por framer-motion (InstallProgressToast.jsx). */
+}
+
+.install-progress-toast-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.install-progress-toast-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--accent-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
+}
+
+/* Tarjeta de actualización de la app (electron-updater). Misma pinta que
+   install-progress-toast, pero anclada abajo a la izquierda para no
+   superponerse con esa (que instala contenido de instancias, no la app). */
+.update-toast {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  width: 300px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  padding: 14px 16px;
+  z-index: 500;
+}
+
+.update-toast-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.update-toast-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--accent-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
+}
+
+.update-toast-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+/* --- Botón de ajustes de instancia (tuerca junto a "Jugar") --- */
+.instance-settings-btn {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel-alt);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.instance-settings-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-secondary);
+}
+.instance-settings-btn.active {
+  background: rgba(var(--accent-rgb), 0.15);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary-hover);
+}
+
+/* --- Barra "Guardar cambios" de ajustes de instancia --- */
+/* Pegada al fondo de .main-content (su ancestro con scroll) para que el
+   botón esté siempre a la vista mientras se edita el formulario, sin
+   necesidad de bajar con la ruedita hasta el final. */
+.instance-settings-savebar {
+  grid-column: 1 / -1;
+  position: sticky;
+  bottom: -28px;
+  margin: 8px -32px -28px;
+  padding: 16px 32px 28px;
+  background: linear-gradient(to top, var(--bg-app) 60%, transparent);
+  z-index: 5;
+}
+
+/* --- Ajustes de la instancia Y Ajustes generales del launcher, ambos como
+   apartado propio (modal) que se abre por encima del launcher, en vez de
+   vivir mezclados con las pestañas/rutas normales: se ve mejor y es más
+   cómodo (se abre, se edita, se cierra, y se vuelve exactamente a donde se
+   estaba, sin perder el scroll de lo que había atrás). Mismo patrón
+   .modal-overlay/.modal-card que el resto del launcher, pero en un tamaño
+   de "panel de ajustes" real, con su propio layout en columna: header fijo
+   arriba, nav + contenido con scroll propio en el medio, y (solo en el de
+   instancia) "Guardar cambios" siempre visible abajo. --- */
+.modal-card.instance-settings-modal,
+.modal-card.launcher-settings-modal {
+  width: 860px;
+  max-width: 92vw;
+  height: 640px;
+  max-height: 88vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.instance-settings-modal .modal-header,
+.launcher-settings-modal .modal-header {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.instance-settings-breadcrumb {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-secondary);
+}
+.instance-settings-breadcrumb span { margin: 0 7px; color: var(--text-muted); font-weight: 400; }
+
+.instance-settings-layout,
+.launcher-settings-layout {
+  flex: 1;
+  min-height: 0;
+  padding: 20px 24px 0;
+  gap: 28px;
+}
+
+.instance-settings-modal-body,
+.launcher-settings-modal-body {
+  overflow-y: auto;
+  min-height: 0;
+}
+/* BUG FIX: mismo problema que .main-content (ver comentario ahí) — acá el
+   scroll container es un item de grid (.settings-layout es display: grid)
+   en vez de flex, pero el bug de padding-bottom recortado al desbordar es
+   el mismo. Un spacer real como último hijo evita que el contenido largo
+   (ajustes de Java, hooks, almacenamiento, etc.) termine pegado al borde
+   inferior del modal. */
+.instance-settings-modal-body::after,
+.launcher-settings-modal-body::after {
+  content: '';
+  display: block;
+  height: 22px;
+}
+
+.instance-settings-modal-savebar {
+  flex-shrink: 0;
+  position: static;
+  margin: 0;
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+}
+
+/* --- Tuerca de ajustes: gira mientras el cursor está encima --- */
+@keyframes gear-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.instance-settings-btn:hover .icon-gear,
+.sidebar-icon-btn:hover .icon-gear,
+.instance-card-menu-item:hover .icon-gear,
+.icon-gear:hover {
+  animation: gear-spin 2.6s linear infinite;
+}
+
+/* --- Barra de filtros compacta (Explorar) --- */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.filter-dropdown { position: relative; }
+
+.filter-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel-alt);
+  border: 1.5px solid var(--border-subtle);
+  color: var(--text-secondary);
+  padding: 9px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.filter-dropdown-trigger:hover { border-color: var(--accent-secondary); color: var(--text-primary); }
+.filter-dropdown-trigger.active { border-color: var(--accent-primary); color: var(--text-primary); background: rgba(var(--accent-rgb), 0.1); }
+
+.filter-dropdown-count {
+  background: var(--accent-gradient);
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+}
+
+.filter-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: 10px;
+  animation: select-menu-in 0.12s ease-out;
+}
+
+/* Scroll SOLO dentro del popover flotante — nunca dentro del flujo normal
+   de la página, que era la causa de que el scroll se sintiera "trabado". */
+.filter-dropdown-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.filter-bar .facet-group { margin-bottom: 12px; }
+.filter-bar .facet-group:last-child { margin-bottom: 0; }
+
+/* ============================================================
+   TEMAS — el :root de arriba es el tema "dark" (por defecto).
+   Estas variantes sobreescriben las mismas variables; todo el resto
+   del CSS ya está escrito con var(--bg-app) etc, así que cambiar de
+   tema no requiere tocar ninguna otra regla.
+   ============================================================ */
+
+[data-theme='oled'] {
+  --bg-app: #000000;
+  --bg-panel: #0a0a0d;
+  --bg-panel-alt: #131317;
+  --bg-hover: #1c1c22;
+  --border-subtle: #232329;
+}
+
+[data-theme='light'] {
+  --bg-app: #f2f1f5;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #f3f1f8;
+  --bg-hover: #e9e6f2;
+  --border-subtle: #ddd8ea;
+
+  --text-primary: #1c1a24;
+  --text-secondary: #5c5670;
+  --text-muted: #8d87a0;
+}
+
+[data-theme='light'] .app-root::before {
+  background:
+    radial-gradient(ellipse 900px 500px at -10% -10%, color-mix(in srgb, var(--accent-primary) 9%, transparent), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 110% 110%, color-mix(in srgb, var(--accent-secondary) 7%, transparent), transparent 60%);
+}
+
+[data-theme='light'] .card { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
+[data-theme='light'] ::-webkit-scrollbar-thumb { border-color: var(--bg-app); }
+
+/* --- Tarjetas de selección de tema (Ajustes > Apariencia) --- */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.theme-option {
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--border-subtle);
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--bg-panel);
+  transition: border-color 0.15s;
+  text-align: left;
+}
+.theme-option:hover { border-color: var(--accent-secondary); }
+.theme-option.selected { border-color: var(--accent-primary); }
+
+.theme-option-preview {
+  height: 80px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+}
+.theme-preview-bar { height: 8px; border-radius: 4px; }
+.theme-preview-bar.wide { width: 70%; }
+.theme-preview-bar.short { width: 40%; }
+.theme-preview-dot { width: 22px; height: 22px; border-radius: 6px; margin-bottom: 4px; }
+
+.theme-option-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.theme-option-radio {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--border-subtle);
+  flex-shrink: 0;
+  position: relative;
+}
+.theme-option.selected .theme-option-radio { border-color: var(--accent-primary); }
+.theme-option.selected .theme-option-radio::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+}
+
+/* --- Ajustes: layout de categorías agrupadas (estilo Modrinth App) ---
+   BUG FIX (no se podía scrollear el contenido de la derecha cuando una
+   sección tenía más contenido del que entraba a la vista, ej. "Valores por
+   defecto" con la sección "Avanzado" agregada abajo — quedaba cortado sin
+   ninguna forma de llegar a lo de más abajo): esto pasaba porque
+   align-items: start hacía que ambas columnas del grid (nav y contenido)
+   tomaran solo la altura de su propio contenido en vez de estirarse hasta
+   ocupar el alto disponible real del modal. Sin una altura acotada, el
+   overflow-y: auto de .launcher-settings-modal-body / .instance-settings-
+   modal-body no tenía nada para recortar y no aparecía la barra de scroll.
+   Con stretch (el valor por defecto de grid, que se había pisado acá sin
+   necesidad) ambas columnas ocupan el alto real disponible y la columna de
+   contenido sí queda acotada, así que ahora sí se puede scrollear dentro de
+   ella cuando hace falta. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  gap: 32px;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.settings-nav-group { margin-bottom: 22px; }
+.settings-nav-heading {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 0 12px;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 14px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-lg);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.settings-nav-item svg { width: 19px; height: 19px; flex-shrink: 0; }
+.settings-nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.settings-nav-item.active { background: rgba(var(--accent-rgb), 0.14); color: var(--accent-primary-hover); font-weight: 700; }
+
+.settings-footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-footer-update-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-primary-hover);
+  cursor: pointer;
+}
+.settings-footer-update-btn:hover { text-decoration: underline; }
+.settings-footer-update-btn:disabled { color: var(--text-muted); cursor: default; text-decoration: none; }
+
+/* --- Ajustes > Almacenamiento --- */
+.storage-total-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.storage-total-banner strong {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.storage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px;
+}
+.storage-row-label { font-weight: 600; margin-bottom: 4px; }
+/* El tamaño era el dato principal de esta pantalla y quedaba en 12px gris
+   apagado, casi ilegible; ahora es lo más prominente de cada fila. */
+.storage-row-size {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-primary-hover);
+}
+
+/* --- Slider de memoria RAM: barra arrastrable + input manual --- */
+.memory-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.memory-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-panel-alt);
+  outline: none;
+}
+.memory-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    var(--accent-primary) 0%,
+    var(--accent-primary) var(--fill, 50%),
+    var(--bg-panel-alt) var(--fill, 50%),
+    var(--bg-panel-alt) 100%
+  );
+}
+.memory-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  border: 3px solid var(--accent-primary);
+  margin-top: -6px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.memory-slider-input {
+  width: 88px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.memory-slider-suffix { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+
+/* --- Home: banner de bienvenida con estadísticas --- */
+.home-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 28px;
+  border-radius: var(--radius-lg);
+  margin-bottom: 18px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 520px 280px at 100% -10%, color-mix(in srgb, var(--accent-primary) 22%, transparent), transparent 68%),
+    radial-gradient(ellipse 380px 220px at -8% 120%, color-mix(in srgb, var(--accent-secondary) 12%, transparent), transparent 70%),
+    var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  flex-wrap: wrap;
+}
+
+.home-hero-title {
+  margin: 0 0 6px;
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.home-hero-subtitle {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  max-width: 480px;
+}
+
+.home-hero-actions { display: flex; gap: 10px; }
+
+.home-hero-stats {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-shrink: 0;
+}
+
+.home-hero-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 64px;
+}
+.home-hero-stat-value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.home-hero-stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.home-hero-stat-divider { width: 1px; height: 40px; background: var(--border-subtle); }
+
+.home-hero-skin-widget {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  /* Contiene acá cualquier z-index interno (el de la img/chat de abajo):
+     antes se filtraban por encima de cosas ajenas a este widget —como el
+     fondo difuminado de un modal abierto en otra parte de la pantalla—
+     porque tenían z-index propio que terminaba comparándose "más afuera"
+     de lo que debía. Con esto, pase lo que pase adentro, nunca vuelve a
+     dibujarse por encima de nada que esté fuera de esta cajita. */
+  isolation: isolate;
+}
+.home-hero-skin-widget-img {
+  /* El filter de acá abajo (drop-shadow) hace que esta imagen cree su
+     propio "stacking context" — por eso el globo de texto de al lado
+     necesita su propio z-index explícito para poder quedar por encima (ver
+     el comentario en .home-hero-skin-chat); el orden del DOM solo no
+     alcanza una vez que hay un filter de por medio. */
+  width: 62px;
+  height: auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
+}
+.home-hero-skin-chat {
+  /* Negativo a propósito: hace que la parte de abajo de la skin quede
+     "por detrás" del texto en vez de dejar un renglón separado como antes.
+
+     BUG FIX: con margin-top negativo nada más, el globo terminaba
+     dibujándose DEBAJO de la skin en vez de encima (el texto de "GTA...
+     peak" quedaba tapado). La imagen de al lado tiene un filter
+     (drop-shadow), y cualquier elemento con filter crea su propio
+     "stacking context" — a partir de ahí ya no importa el orden en el DOM,
+     el navegador la trata como si tuviera z-index:0 propio y la pinta en
+     una capa aparte. Este span, al no tener ninguna posición/z-index/
+     filter propio, quedaba en la capa "de atrás" de esa comparación y
+     perdía siempre contra la imagen, sin importar que viniera después en
+     el HTML. Position+z-index acá le da su propio stacking context
+     también, así ambos se comparan como hermanos con z-index explícito y
+     gana el que tiene el valor más alto (este). */
+  position: relative;
+  z-index: 1;
+  margin-top: -22px;
+  font-family: 'Minecraft', var(--font-main);
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.home-hero-skin-chat-name {
+  color: var(--accent-primary);
+}
+
+/* --- Títulos "cortantes": versión más grande, más pesada (Inter 800),
+   reservada para encabezados de sección importantes (no todo el texto,
+   para que siga resaltando). --- */
+.heading-display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: none;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+}
+.section-heading h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent-primary-hover);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.link-btn:hover { color: var(--accent-primary); text-decoration: underline; }
+
+/* --- Botones con ícono + texto, alineados prolijos --- */
+.btn-icon-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+/* ============================================================
+   PESTAÑA "VERSIONES" DE UN PROYECTO — tabla estilo Modrinth
+   ============================================================
+   Antes cada versión era una card suelta apilada (título, fecha larga,
+   badges y un botón "Instalar" grande, una debajo de otra). Se reemplaza
+   por una tabla real con columnas fijas (Versión / Versión de juego /
+   Plataforma / Publicada / Descargas + acciones), un punto de color por
+   canal (R/B/A) y filtros arriba — igual a como se ve la lista de
+   versiones de un proyecto en la web de Modrinth. */
+
+.versions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.versions-filter-bar { margin-bottom: 0; }
+
+.versions-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+}
+
+/* Chip de filtro activo (ej. "26.2 ✕", "Fabric ✕") — clickeable para
+   sacar ese filtro puntual sin tener que abrir el dropdown de nuevo. */
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(var(--accent-rgb), 0.14);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.active-filter-chip:hover { background: rgba(var(--accent-rgb), 0.24); border-color: var(--accent-primary); }
+.active-filter-chip svg { color: var(--text-secondary); flex-shrink: 0; }
+
+.versions-table-card { padding: 0; overflow-x: auto; }
+
+.versions-table {
+  display: flex;
+  flex-direction: column;
+  min-width: 640px;
+}
+
+.versions-table-row {
+  display: grid;
+  grid-template-columns: 30px minmax(150px, 1.4fr) minmax(130px, 1fr) minmax(100px, 0.8fr) 90px 84px 76px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.versions-table-row:last-child { border-bottom: none; }
+
+.versions-table-head {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: var(--bg-panel-alt);
+}
+
+.versions-table-row:not(.versions-table-head).clickable { cursor: pointer; }
+.versions-table-row:not(.versions-table-head):hover { background: var(--bg-hover); }
+.versions-table-row.installed { background: rgba(var(--accent-rgb), 0.06); }
+.versions-table-row.expanded { background: var(--bg-hover); }
+
+/* Punto de color por canal (Release/Beta/Alpha), igual a la letra "R"
+   circular verde que usa Modrinth para marcar cada fila de un vistazo. */
+.version-type-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.version-type-dot.type-release { background: rgba(52, 211, 153, 0.18); color: var(--success); border: 1px solid rgba(52, 211, 153, 0.4); }
+.version-type-dot.type-beta { background: rgba(251, 191, 36, 0.18); color: var(--warning); border: 1px solid rgba(251, 191, 36, 0.4); }
+.version-type-dot.type-alpha { background: rgba(248, 113, 113, 0.18); color: var(--danger); border: 1px solid rgba(248, 113, 113, 0.4); }
+
+.versions-table-name { min-width: 0; }
+.version-name-text {
+  font-weight: 700;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.versions-table-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.badge-sm { font-size: 11px; padding: 2px 7px; }
+.badge-loader { background: rgba(52, 211, 153, 0.12); color: var(--success); border-color: rgba(52, 211, 153, 0.32); }
+
+.version-date, .version-downloads {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.versions-table-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.version-action-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.version-action-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.version-action-btn:disabled { opacity: 0.5; cursor: default; }
+/* Botón de instalar/descargar una versión concreta: antes usaba el mismo
+   estilo neutro (caja gris con borde) que el botón "Ver en Modrinth" de al
+   lado, así que costaba distinguir cuál de los dos hacía qué. Ahora es un
+   ícono de descarga sin caja, en verde acento — igual al botón de
+   instalar de la app real de Modrinth — bien distinguible del ícono
+   de enlace externo que queda al lado. */
+.version-action-btn.install { color: var(--success); }
+.version-action-btn.install:hover:not(:disabled) {
+  background: rgba(52, 211, 153, 0.14);
+  color: var(--success);
+}
+.version-action-btn.installed {
+  color: var(--success);
+  background: rgba(52, 211, 153, 0.14);
+  cursor: default;
+}
+
+.mini-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--accent-primary-hover);
+  animation: mini-spin 0.7s linear infinite;
+}
+@keyframes mini-spin { to { transform: rotate(360deg); } }
+
+.versions-table-changelog {
+  padding: 14px 16px 16px 60px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.12);
+  font-size: 13px;
+}
+.versions-table-changelog:last-child { border-bottom: none; }
+
+@media (max-width: 720px) {
+  .versions-table-row { grid-template-columns: 26px minmax(120px, 1.2fr) minmax(100px, 1fr) 70px 60px 60px; }
+  .versions-table-row > *:nth-child(4) { display: none; } /* oculta "Plataforma" en angosto */
+  .versions-table-head > *:nth-child(4) { display: none; }
+}
+
+/* ============================================================================
+   Inspirado en Solaris Launcher: vidrio esmerilado, glow ambiental y las
+   micro-animaciones (fade-in-up, float, shimmer) que después se enganchan
+   desde JS con framer-motion en los componentes de React. Todo lo de acá
+   abajo es aditivo — usa las variables de --accent-primary/--bg-panel de
+   cada tema, así que funciona igual en oscuro, OLED, claro y "sharp" sin
+   tener que duplicar nada por tema. */
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+}
+
+/* Fondo ambiental de la ventana: un resplandor superior sutil del color de
+   acento + dos anillos que rotan lentísimo. Se monta una sola vez en
+   App.jsx (AmbientBackground.jsx), fixed detrás de todo el contenido, con
+   pointer-events: none para no interceptar clicks. */
+.app-root > .ambient-bg,
+.ambient-bg {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.ambient-bg-glow {
+  position: absolute;
+  top: -180px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 900px;
+  height: 420px;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--accent-primary) 16%, transparent) 0%, transparent 65%);
+}
+.ambient-bg-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 8%, transparent);
+}
+.ambient-bg-ring--a { top: -140px; right: -140px; width: 320px; height: 320px; }
+.ambient-bg-ring--b { bottom: -200px; left: -200px; width: 440px; height: 440px; border-color: color-mix(in srgb, var(--warning) 8%, transparent); }
+.ambient-bg-iso {
+  position: absolute;
+  inset: -12%;
+  opacity: 0.45;
+  background-image:
+    linear-gradient(30deg, color-mix(in srgb, var(--accent-primary) 9%, transparent) 12%, transparent 12.5%, transparent 87%, color-mix(in srgb, var(--accent-primary) 9%, transparent) 87.5%),
+    linear-gradient(150deg, color-mix(in srgb, var(--accent-secondary) 7%, transparent) 12%, transparent 12.5%, transparent 87%, color-mix(in srgb, var(--accent-secondary) 7%, transparent) 87.5%);
+  background-size: 80px 140px;
+  transform: rotate(-6deg);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 75%);
+}
+
+/* El resto de la app (titlebar, app-shell) va por encima del fondo ambiental. */
+.app-shell, .titlebar { position: relative; z-index: 1; }
+
+@keyframes app-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes solar-fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes solar-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes solar-pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 35%, transparent); }
+  50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent-primary) 0%, transparent); }
+}
+
+.solar-glow-text {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.page-enter { will-change: opacity; pointer-events: auto; }
+
+.lang-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.22s var(--ease-solar), background 0.22s var(--ease-solar), transform 0.22s var(--ease-solar), box-shadow 0.22s var(--ease-solar);
+}
+.lang-option:hover {
+  border-color: var(--accent-secondary);
+  transform: translateY(-1px);
+}
+.lang-option.selected {
+  border-color: var(--accent-primary);
+  box-shadow: var(--glow-accent);
+  background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-panel));
+}
+.lang-option-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lang-option-native {
+  font-weight: 700;
+  font-size: 15px;
+}
+.lang-option-en {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.result-row {
+  transition: border-color 0.22s var(--ease-solar), box-shadow 0.22s var(--ease-solar);
+}
+.result-row:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-subtle));
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+}
+
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 20%, rgba(255, 255, 255, 0.16) 45%, transparent 70%);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+.btn-primary:hover::after {
+  animation: btn-shine 0.7s var(--ease-solar);
+}
+@keyframes btn-shine {
+  to { transform: translateX(120%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .btn-primary::after { display: none; }
+}

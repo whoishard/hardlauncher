@@ -1,0 +1,32 @@
+# Archivos de empaquetado y compilación (Evita el error de archivos +100MB)
+release/
+dist/
+dist-electron/
+out/
+
+# Dependencias (Se instalan con npm install, no se suben)
+node_modules/
+
+# Archivos de registro y caché
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.eslintcache
+.vite/
+
+# Variables de entorno y credenciales (Seguridad)
+.env
+.env.local
+.env.*.local
+
+# Archivos del sistema operativo y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
