@@ -1,7 +1,9 @@
 const Store = require('electron-store');
+const { getConfigDir } = require('../shared/paths');
 
 const store = new Store({
   name: 'accounts',
+  cwd: getConfigDir(),
   // En producción conviene cifrar este archivo (electron-store soporta "encryptionKey")
   // ya que guarda tokens de acceso.
 });

@@ -4032,7 +4032,36 @@ input:focus, select:focus { outline: none; border-color: var(--accent-primary); 
     var(--bg-panel);
   border: 1px solid var(--border-subtle);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  flex-wrap: wrap;
+  /* BUG FIX: esto era "wrap" sin ningún flex-basis/min-width propio en
+     .home-hero-content (el bloque de saludo+subtítulo+botones). El ancho
+     que ocupa ese bloque varía según el estado (con/sin cuenta, con/sin
+     instancias creadas, cantidad de dígitos en los contadores, idioma,
+     etc.); apenas los tres ítems del hero (saludo, resumen de stats y la
+     skin) sumaban un pelo más que el ancho disponible, "wrap" mandaba el
+     último ítem —la skin— a su propia línea dentro del hero. Eso agranda
+     el hero entero y empuja "Continuar donde quedaste" y "Servidores
+     recomendados" más abajo de lo que entra en pantalla sin scrollear (se
+     reportaba como "con la instancia vacía, la skin se va abajo y tapa los
+     servidores"). La ventana tiene un ancho mínimo fijo (ver minWidth en
+     electron/main.js) bien por encima de lo que estos tres ítems necesitan
+     en una sola fila, así que en el launcher real no hace falta que
+     envuelvan nunca: con nowrap, si el saludo/subtítulo necesitan más
+     lugar, el texto se ajusta puertas adentro (ya wrappea internamente)
+     en vez de tirar la skin a una fila nueva. Se restaura "wrap" en el
+     media query angosto de abajo, para no perder ese comportamiento en una
+     ventana hipotéticamente más chica que ese mínimo. */
+  flex-wrap: nowrap;
+}
+
+.home-hero-content {
+  /* Sin esto, este ítem no tenía flex-basis/min-width propios y su ancho
+     "natural" (el de su contenido más largo) determinaba solo si el resto
+     del hero entraba en una fila — ver el comentario de flex-wrap arriba.
+     Con flex-shrink habilitado y min-width:0 puede angostarse de verdad en
+     vez de forzar overflow, dejando que el texto de adentro haga su propio
+     wrap normal en vez de arrastrar a los demás ítems del hero. */
+  flex: 1 1 320px;
+  min-width: 0;
 }
 
 .home-hero-title {
@@ -4133,6 +4162,99 @@ input:focus, select:focus { outline: none; border-color: var(--accent-primary); 
 .home-hero-skin-chat-name {
   color: var(--accent-primary);
 }
+
+/* --- Home: resumen de stats DENTRO del hero (entre el saludo y la skin),
+   para aprovechar el aire horizontal que quedaba vacío en el medio del
+   banner en vez de gastar una fila propia de ancho completo (eso empujaba
+   "Servidores recomendados" más abajo de lo necesario). Reutiliza el mismo
+   patrón valor-arriba/label-abajo con separadores verticales que ya usa el
+   resto del launcher para grupos de stats compactos. */
+.home-hero-summary {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-shrink: 0;
+}
+.home-hero-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 64px;
+}
+.home-hero-stat-value {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.home-hero-stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.home-hero-stat-divider { width: 1px; height: 38px; background: var(--border-subtle); flex-shrink: 0; }
+
+/* Indicador de "jugadores en línea" dentro del resumen del hero: antes era
+   un stat más, igual de plano que "Instancias" o "Tiempo jugado" — pero al
+   ser el único dato realmente "en vivo" de los tres (se actualiza solo,
+   sin que el usuario haga nada), conviene que se note a simple vista en
+   vez de mezclarse con los otros dos. Reutiliza el mismo verde/halo/pulso
+   que ya usa el launcher para "en vivo" en otras partes (ver
+   .console-status-dot.running), en vez de inventar un tratamiento nuevo. */
+.home-hero-stat-online {
+  padding: 4px 14px;
+  border-radius: 12px;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.22);
+}
+.home-hero-stat-online .home-hero-stat-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--success);
+}
+.home-hero-stat-online .home-hero-stat-label { color: var(--success); opacity: 0.85; }
+.home-hero-stat-online-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2);
+  animation: console-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* --- Home: accesos rápidos --- */
+.home-quick-actions {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0 22px;
+  flex-wrap: wrap;
+}
+.home-quick-action {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.1s;
+}
+.home-quick-action:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-panel));
+}
+.home-quick-action:active:not(:disabled) { transform: scale(0.97); }
+.home-quick-action:disabled { opacity: 0.5; cursor: default; }
 
 /* --- Títulos "cortantes": versión más grande, más pesada (Inter 800),
    reservada para encabezados de sección importantes (no todo el texto,
@@ -4357,6 +4479,8 @@ input:focus, select:focus { outline: none; border-color: var(--accent-primary); 
   .versions-table-row { grid-template-columns: 26px minmax(120px, 1.2fr) minmax(100px, 1fr) 70px 60px 60px; }
   .versions-table-row > *:nth-child(4) { display: none; } /* oculta "Plataforma" en angosto */
   .versions-table-head > *:nth-child(4) { display: none; }
+  .home-hero-summary { display: none; } /* el hero ya se envuelve en pantallas angostas: se prioriza el saludo/botones y la skin, el resumen numérico se sigue viendo en Ajustes/Instancias */
+  .home-hero { flex-wrap: wrap; } /* restaura el wrap acá: fuera de este breakpoint angosto el hero usa nowrap (ver comentario en la regla base) */
 }
 
 /* ============================================================================

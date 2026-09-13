@@ -1,7 +1,9 @@
 const Store = require('electron-store');
+const { getConfigDir } = require('../shared/paths');
 
 const store = new Store({
   name: 'settings',
+  cwd: getConfigDir(),
   defaults: {
     defaultMemoryMin: 1024,
     defaultMemoryMax: 4096,

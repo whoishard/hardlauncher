@@ -20,7 +20,9 @@ const https = require('https');
 // esperar ninguna respuesta de red. `prefetchAll` además dispara la
 // descarga apenas arranca la app (ver electron/main.js), no recién cuando
 // el usuario abre el desplegable.
-const store = new Store({ name: 'account-faces' });
+const { getConfigDir } = require('../shared/paths');
+
+const store = new Store({ name: 'account-faces', cwd: getConfigDir() });
 
 // 12 horas: suficiente para que un cambio de skin se note en un tiempo
 // razonable, sin volver a descargar todo en cada arranque cuando lo más

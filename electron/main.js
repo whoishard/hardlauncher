@@ -5,6 +5,19 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 const { pathToFileURL } = require('url');
 
+const { getConfigDir } = require('../src/shared/paths');
+
+// Todo lo que Chromium/Electron genera solo (Cache, GPUCache, Local
+// Storage, Session Storage, blob_storage, IndexedDB, Service Worker,
+// Cookies, Preferences, etc.) se guarda por defecto suelto en la raíz de
+// userData — es, de lejos, lo que más "ensucia" esa carpeta si alguien la
+// abre desde el explorador de archivos, y no es nada que el jugador vaya
+// a necesitar tocar a mano. Se lo redirige a una subcarpeta ("cache/")
+// para que la raíz quede con solo lo que sí tiene sentido ver ahí. Tiene
+// que ejecutarse antes de 'ready' (y antes de crear cualquier ventana),
+// por eso está acá arriba, a nivel de módulo.
+app.setPath('sessionData', path.join(app.getPath('userData'), 'cache'));
+
 const offlineAuth = require('../src/auth/offlineAuth');
 const microsoftAuth = require('../src/auth/microsoftAuth');
 const accountManager = require('../src/auth/accountManager');
@@ -22,6 +35,7 @@ const serverListStore = require('../src/store/serverListStore');
 const { pingServer } = require('../src/core/serverPing');
 const { setupAutoUpdater } = require('./updater');
 const discordPresence = require('./discordPresence');
+const onlinePresence = require('../src/core/onlinePresence');
 
 // BUG FIX (videos de YouTube en descripciones de proyecto no reproducen —
 // "Error 153: Video player configuration error"): además de reactivar el
@@ -56,6 +70,52 @@ let tray = null;
 let trayPopup = null;
 const isDev = !app.isPackaged;
 
+// ---------- Instancia única del proceso ----------
+// BUG FIX ("a veces salen duplicados los del launcher" en el mostrador de
+// íconos ocultos de Windows): el ícono de bandeja se crea una vez por
+// PROCESO (ver createTray, más abajo, llamado desde app.whenReady). Nada
+// impedía que el launcher se abriera dos veces a la vez — doble clic al
+// acceso directo de nuevo mientras ya está minimizado en la bandeja, o
+// estar configurado para iniciar con el sistema y encima abrirlo a mano —
+// y cada apertura es un proceso de Electron totalmente aparte que llega a
+// su propio app.whenReady() y crea su propio ícono de bandeja, sin que
+// ninguno de los dos procesos sepa que el otro existe. Resultado: dos
+// íconos "Hard Launcher" conviviendo en la bandeja en vez de uno solo.
+//
+// requestSingleInstanceLock() es el mecanismo estándar de Electron para
+// esto: el primer proceso en pedirlo se queda con el lock; cualquier
+// proceso que arranque después lo pierde de inmediato (gotTheLock ===
+// false acá abajo) y se cierra ya mismo, sin llegar a crear ventana ni
+// tray propios — así nunca hay un segundo ícono que crear. El proceso
+// original se entera de ese segundo intento vía 'second-instance' y en vez
+// de ignorarlo trae al frente su propia ventana (restaurándola si estaba
+// minimizada), el mismo comportamiento de Discord/Steam al "abrirlos" con
+// la app ya corriendo. Esto tiene que resolverse ANTES de app.whenReady()
+// y de crear cualquier ventana o tray, por eso va acá arriba de todo.
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  // El módulo entero (imports pesados de más abajo, definición de
+  // app.whenReady().then(() => { ...createWindow(); createTray()... }),
+  // etc.) seguiría ejecutándose igual después de este app.quit() si no se
+  // corta acá: quit() solo AVISA a Electron que cierre, no interrumpe el
+  // resto del script de forma síncrona. Sin este return, el proceso
+  // perdedor del lock alcanzaría a crear su propia ventana y su propio
+  // ícono de bandeja de todos modos antes de terminar de cerrarse —
+  // exactamente el ícono duplicado que se busca evitar. main.js se carga
+  // como módulo CommonJS (ver "main" en package.json), así que un
+  // `return` a este nivel es válido: corta el resto del archivo para este
+  // proceso sin tocar nada del proceso que sí se quedó con el lock.
+  return;
+}
+app.on('second-instance', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 // ---------- Recuperación automática ante crashes (GPU/drivers) ----------
 //
 // Síntoma típico en PCs con drivers de video viejos/raros: la ventana se
@@ -68,7 +128,7 @@ const isDev = !app.isPackaged;
 //    error no manejado del proceso principal, queda anotada en un archivo
 //    de texto en el Escritorio — para poder pedírselo a quien le pasó y
 //    entender qué fue sin acceso remoto a esa PC.
-const sessionMarkerPath = path.join(app.getPath('userData'), 'session-marker.json');
+const sessionMarkerPath = path.join(getConfigDir(), 'session-marker.json');
 
 function readSessionMarker() {
   try {
@@ -526,10 +586,27 @@ ipcMain.on('trayMenu:action', (_e, action) => {
 });
 
 app.whenReady().then(() => {
+  // Best-effort y una sola vez por arranque: renombra a nombres
+  // distinguibles las carpetas de instancias creadas antes de este
+  // cambio (ver migrateLegacyInstanceFolders en instanceStore.js). Va
+  // antes de crear la ventana para que la UI ya liste los "dir"
+  // actualizados desde el primer render, no a mitad de sesión.
+  instanceStore.migrateLegacyInstanceFolders();
   if (!isDev) registerAppProtocol();
   createWindow();
   setupAutoUpdater(mainWindow, { isDev });
   discordPresence.init(settingsStore.getSettings().discordRichPresence);
+  // Contador de "jugadores en línea" (ver src/core/onlinePresence.js): no
+  // hace nada si no hay credenciales de Supabase cargadas en
+  // src/shared/onlinePresenceConfig.js. Cada actualización se reenvía tal
+  // cual al renderer; si la ventana ya se cerró (por ej. justo en medio de
+  // un cierre de la app) el guard de mainWindow evita mandarle a un
+  // webContents ya destruido.
+  onlinePresence.start((count) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('onlinePlayers:update', count);
+    }
+  });
   // Ícono de bandeja persistente (ver comentario arriba de createTray):
   // arranca junto con la app, no recién cuando el launcher se oculta.
   createTray();
@@ -548,6 +625,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => writeSessionMarker({ cleanExit: true }));
+app.on('before-quit', () => onlinePresence.stop());
 
 // Caída del proceso de renderizado (la ventana en sí) — el caso típico de
 // "se puso todo negro y no respondía más" en PCs con drivers de GPU
@@ -587,6 +665,7 @@ ipcMain.handle('window:toggleMaximize', () => {
 });
 ipcMain.handle('window:close', () => mainWindow.close());
 ipcMain.handle('window:isMaximized', () => mainWindow.isMaximized());
+ipcMain.handle('onlinePlayers:get', () => onlinePresence.getCount());
 
 // ---------- IPC: Cuentas ----------
 ipcMain.handle('auth:createOffline', async (_e, username, skinUrl) => {
@@ -785,7 +864,16 @@ ipcMain.handle('instances:create', (_e, data) => instanceStore.createInstance(da
 ipcMain.handle('instances:duplicate', (_e, id) => instanceStore.duplicateInstance(id));
 ipcMain.handle('instances:update', (_e, id, data) => instanceStore.updateInstance(id, data));
 ipcMain.handle('instances:delete', (_e, id) => instanceStore.deleteInstance(id));
-ipcMain.handle('instances:get', (_e, id) => instanceStore.getInstance(id));
+// BUG FIX: antes esto devolvía el registro guardado tal cual, sin mirar
+// nunca el disco. Si mods/resourcepacks/shaders/datapacks se agregaban de
+// una forma que no pasara por las funciones de instalación de la app (por
+// ejemplo arrastrando el .jar a mano a la carpeta de la instancia desde el
+// explorador de archivos del sistema), la pestaña "Contenido" los mostraba
+// vacíos aunque el juego sí los cargara. scanInstanceContent reconcilia el
+// registro contra lo que hay realmente en disco antes de devolver la
+// instancia — se llama tanto al abrir la pestaña como al apretar
+// "Refrescar".
+ipcMain.handle('instances:get', (_e, id) => modInstaller.scanInstanceContent(id));
 ipcMain.handle('instances:getSize', (_e, id) => instanceStore.getInstanceSize(id));
 ipcMain.handle('instances:openFolder', (_e, id) => instanceStore.openInstanceFolder(id));
 ipcMain.handle('instances:listWorlds', (_e, id) => instanceStore.listWorlds(id));
@@ -888,7 +976,13 @@ ipcMain.handle('instances:addLocalFiles', async (_e, instanceId, contentType) =>
     filters: [{ name: 'Mods y Resource Packs', extensions: ['jar', 'zip'] }],
   });
   if (result.canceled || result.filePaths.length === 0) return [];
-  return result.filePaths.map((filePath) => modInstaller.addLocalFile(instanceId, filePath));
+  // BUG FIX: `contentType` (el filtro activo en la pestaña Contenido) ya se
+  // usaba arriba para elegir la carpeta del diálogo, pero nunca se lo
+  // pasábamos a addLocalFile — ahí el tipo se adivinaba solo por extensión
+  // (.jar → mod, cualquier otra cosa → resourcepack), así que un shader o
+  // datapack subido como .zip quedaba siempre mal clasificado como
+  // resourcepack y no aparecía en su pestaña correspondiente.
+  return result.filePaths.map((filePath) => modInstaller.addLocalFile(instanceId, filePath, contentType));
 });
 
 // Ajustes de instancia → Instalación → "Repair instance".
@@ -929,11 +1023,28 @@ ipcMain.handle('game:launch', async (_e, instanceId, directConnect) => {
   const account = accountManager.getActiveAccount();
   if (!account) throw new Error('No hay ninguna cuenta activa seleccionada.');
 
-  discordPresence.setPlaying(instance.name, instance.mcVersion);
+  discordPresence.setPlaying(instance.name, instance.mcVersion, {
+    username: account.username,
+    faceUrl: accountFaceUrl(account),
+  });
+  // Si ya se sabe a qué server se va a unir (botón "Jugar" de un servidor
+  // recomendado, ver MinecraftServerList.jsx → directConnect.name), no hace
+  // falta esperar al log del juego: se muestra en la Rich Presence desde ya.
+  if (directConnect) {
+    discordPresence.setServer(directConnect.host, directConnect.port || 25565, directConnect.name);
+  }
 
   const result = await launcher.launch(instance, account, {
     onProgress: (data) => mainWindow.webContents.send('game:downloadProgress', data),
     onLog: (line) => mainWindow.webContents.send('game:log', line),
+    // El jugador entró a un server desde el propio menú de Minecraft (no
+    // vino de directConnect, ver CONNECTING_TO_RE en core/launcher.js). Si
+    // ese host coincide con uno de los "Servidores recomendados", se usa su
+    // nombre lindo en vez del host pelado.
+    onServerConnect: ({ host, port }) => {
+      const known = serverListStore.listServers().find((s) => s.host === host);
+      discordPresence.setServer(host, port, known?.name);
+    },
     onExit: (code) => {
       discordPresence.setIdle();
       mainWindow.webContents.send('game:exit', code);

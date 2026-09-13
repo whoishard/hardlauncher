@@ -9,13 +9,53 @@ const serverListStore = require('./serverListStore');
 const { buildServersDat, addServerToDat } = require('../core/nbtWriter');
 const { readLevelInfo, writeLevelInfo } = require('../core/worldNbt');
 const { randomInstanceIcon } = require('../core/randomInstanceIcon');
+const { getConfigDir, uniqueInstanceDir } = require('../shared/paths');
 
-const store = new Store({ name: 'instances' });
+// El .json de electron-store vive en <userData>/config junto con el resto
+// de la configuración interna (ver src/shared/paths.js) — no en la raíz
+// de userData, para no sumar otro archivo suelto ahí.
+const store = new Store({ name: 'instances', cwd: getConfigDir() });
 
 function getInstancesRoot() {
   const root = path.join(app.getPath('userData'), 'instances');
   if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true });
   return root;
+}
+
+/**
+ * Migración liviana para instancias creadas antes de este cambio, cuya
+ * carpeta en disco es directamente su id (un uuid ilegible, ej.
+ * "3fa8e2c1-...") en vez de un nombre reconocible. Se corre una sola vez
+ * al arrancar (ver electron/main.js): por cada instancia vieja, renombra
+ * su carpeta a un nombre distinguible y actualiza el "dir" guardado.
+ *
+ * Es best-effort a propósito: si falla el rename de alguna (carpeta en
+ * uso, permisos, etc.) esa instancia sigue funcionando igual con su
+ * carpeta uuid de siempre, no se rompe nada — simplemente no queda tan
+ * prolija hasta el próximo arranque.
+ */
+function migrateLegacyInstanceFolders() {
+  const root = getInstancesRoot();
+  const instances = listInstances();
+  let changed = false;
+
+  for (const instance of instances) {
+    const currentBase = path.basename(instance.dir || '');
+    // Si la carpeta actual ya coincide con el id, es el esquema viejo.
+    if (currentBase !== instance.id) continue;
+    if (!fs.existsSync(instance.dir)) continue;
+
+    try {
+      const newDir = uniqueInstanceDir(root, instance.name);
+      fs.renameSync(instance.dir, newDir);
+      instance.dir = newDir;
+      changed = true;
+    } catch (err) {
+      console.error(`No se pudo renombrar la carpeta de la instancia "${instance.name}":`, err);
+    }
+  }
+
+  if (changed) store.set('instances', instances);
 }
 
 function listInstances() {
@@ -73,7 +113,12 @@ function getInstanceSize(id) {
  */
 function createInstance(data) {
   const id = uuidv4();
-  const dir = path.join(getInstancesRoot(), id);
+  // La carpeta en disco se nombra según el nombre de la instancia (no el
+  // id) para que sea reconocible a simple vista si alguien entra a
+  // instances/ desde el explorador de archivos — el id sigue siendo la
+  // clave interna real, así que renombrar la instancia después no rompe
+  // nada (la carpeta ya creada no se toca sola).
+  const dir = uniqueInstanceDir(getInstancesRoot(), data.name || 'Nueva Instancia');
   fs.mkdirSync(dir, { recursive: true });
   fs.mkdirSync(path.join(dir, 'mods'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'resourcepacks'), { recursive: true });
@@ -198,7 +243,7 @@ function duplicateInstance(id) {
   if (!source) throw new Error('Instancia no encontrada.');
 
   const newId = uuidv4();
-  const newDir = path.join(getInstancesRoot(), newId);
+  const newDir = uniqueInstanceDir(getInstancesRoot(), `${source.name} (copia)`);
   if (fs.existsSync(source.dir)) {
     fs.cpSync(source.dir, newDir, { recursive: true });
   } else {
@@ -558,6 +603,7 @@ function readImageAsDataUrl(instanceId, filePath) {
 
 module.exports = {
   getInstancesRoot,
+  migrateLegacyInstanceFolders,
   listInstances,
   getInstance,
   createInstance,

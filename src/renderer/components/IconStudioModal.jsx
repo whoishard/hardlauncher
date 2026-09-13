@@ -62,11 +62,18 @@ function ShapeGlyph({ shape, size = 26 }) {
  */
 export default function IconStudioModal({ name, loader, value, onChange, onClose }) {
   const t = useT();
-  // Si la instancia ya tenía un ícono (subido o generado antes por el
-  // estudio, da igual — ambos son el mismo data URL plano), se precarga en
-  // la pestaña "Imagen personalizada" para no perderlo de vista al
-  // reabrir el editor; el usuario puede pasarse a "Estudio" cuando quiera.
-  const [tab, setTab] = useState(value ? 'upload' : 'studio');
+  // BUG FIX: antes, si la instancia ya tenía CUALQUIER ícono (`value`
+  // truthy), esto arrancaba directo en la pestaña "Imagen personalizada".
+  // El problema es que casi toda instancia tiene un `icon` seteado desde
+  // que se crea — randomInstanceIcon le asigna uno generado automáticamente
+  // aunque el usuario nunca haya subido nada a mano — así que en la
+  // práctica "Editar ícono" desde Ajustes casi siempre caía en la pestaña
+  // de subir imagen en vez de abrir el Estudio como el usuario esperaba.
+  // Ahora el editor siempre abre en "Estudio" al entrar; el valor actual
+  // (subido o autogenerado, es el mismo tipo de data URL en ambos casos) se
+  // sigue precargando en `uploaded` de abajo, así que la pestaña "Imagen
+  // personalizada" no pierde nada si el usuario se pasa a ella.
+  const [tab, setTab] = useState('studio');
   const [bg, setBg] = useState(BACKGROUND_SWATCHES[0]);
   const [shapeId, setShapeId] = useState(null);
   const [uploaded, setUploaded] = useState(value || null);

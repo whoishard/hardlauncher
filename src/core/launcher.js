@@ -292,8 +292,20 @@ function applyFullscreenOption(instanceDir, fullscreen) {
   fs.writeFileSync(optionsPath, lines.join('\n') + '\n');
 }
 
+// El cliente vanilla de Minecraft imprime esta línea exacta ("Connecting
+// to <host>, <port>") en su log cada vez que el jugador entra a un server
+// — tanto al tipearlo a mano desde el menú Multijugador como al usar
+// Quick Play/--server de conexión directa. Es un mensaje público y estable
+// del propio juego (net.minecraft.client.gui.screens.ConnectScreen), no
+// algo específico de ningún mod ni server en particular, así que sirve
+// para detectar "a qué server se unió" sin tener que confiar solo en
+// directConnect (que no cubre el caso de que el jugador se conecte a mano
+// a otro server distinto ya adentro del juego). Se usa para la Rich
+// Presence de Discord (ver electron/discordPresence.js).
+const CONNECTING_TO_RE = /Connecting to ([^,]+),\s*(\d+)/i;
+
 async function launch(instance, account, hooks = {}, directConnect = null) {
-  const { onProgress, onLog, onExit } = hooks;
+  const { onProgress, onLog, onExit, onServerConnect } = hooks;
 
   onLog?.(`[Hard Launcher] Preparando instancia "${instance.name}" (${instance.mcVersion} / ${instance.loader})...`);
 
@@ -314,6 +326,7 @@ async function launch(instance, account, hooks = {}, directConnect = null) {
 
   if (directConnect) {
     onLog?.(`[Hard Launcher] Uniéndose directo a ${directConnect.host}:${directConnect.port || 25565}...`);
+    onServerConnect?.({ host: directConnect.host, port: directConnect.port || 25565 });
   }
 
   const { args, cwd, fullscreen } = await buildLaunchCommand(instance, account, installResult, javaBin, directConnect);
@@ -339,7 +352,17 @@ async function launch(instance, account, hooks = {}, directConnect = null) {
   });
   runningProcesses.set(instance.id, { proc, exitPromise });
 
-  proc.stdout.on('data', (data) => onLog?.(data.toString()));
+  proc.stdout.on('data', (data) => {
+    const text = data.toString();
+    onLog?.(text);
+    // No hace falta acumular entre chunks: Minecraft escribe esta línea de
+    // una sola vez por evento de conexión, así que alcanza con mirar cada
+    // chunk por separado (el peor caso de que quede partida justo en el
+    // medio entre dos chunks es rarísimo y solo cuesta perderse ese evento
+    // puntual, no romper nada).
+    const match = text.match(CONNECTING_TO_RE);
+    if (match) onServerConnect?.({ host: match[1].trim(), port: Number(match[2]) });
+  });
   proc.stderr.on('data', (data) => onLog?.(data.toString()));
   proc.on('exit', (code) => {
     runningProcesses.delete(instance.id);

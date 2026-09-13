@@ -39,17 +39,43 @@ let connected = false;
 let reconnectTimer = null;
 let launcherStartedAt = new Date();
 let currentPresence = { type: 'idle' };
+// Server al que está conectado dentro de la partida en curso (si hay
+// alguna). Se guarda aparte de currentPresence porque llega por un camino
+// distinto y en otro momento: currentPresence.type pasa a 'playing' apenas
+// arranca el proceso de Java (game:launch, ver main.js), mientras que el
+// server recién se sabe un rato después — cuando llega directConnect, o
+// cuando el log del propio juego confirma la conexión (ver
+// CONNECTING_TO_RE en core/launcher.js) — y puede cambiar más de una vez
+// en la misma partida si el jugador va de un server a otro desde el menú
+// Multijugador sin cerrar Minecraft.
+let currentServer = null;
 
 function buildActivity() {
   if (currentPresence.type === 'playing') {
-    const { instanceName, mcVersion, startedAt } = currentPresence;
-    return {
+    const { instanceName, mcVersion, startedAt, accountName, faceUrl } = currentPresence;
+    const activity = {
       details: `Jugando ${instanceName}`,
-      state: mcVersion ? `Minecraft ${mcVersion}` : undefined,
+      state: currentServer
+        ? `En ${currentServer.host}${currentServer.motd ? ` · ${currentServer.motd}` : ''}`
+        : mcVersion
+        ? `Minecraft ${mcVersion}`
+        : undefined,
       startTimestamp: startedAt,
       largeImageKey: 'launcher_icon',
-      largeImageText: 'Hard Launcher',
+      largeImageText: mcVersion ? `Hard Launcher · Minecraft ${mcVersion}` : 'Hard Launcher',
     };
+    // La carita de la skin va como imagen CHICA (superpuesta sobre la
+    // grande, como el ícono de un juego sobre el avatar). Discord acepta
+    // una URL http(s) directa acá en vez de un asset subido de antemano
+    // (ver docs de Rich Presence / SET_ACTIVITY), así que sirve pasarle
+    // tal cual la misma URL de Crafatar que ya usa el resto del launcher
+    // para la cara de esta cuenta (ver accountFaceUrl en main.js) — no
+    // hace falta subir nada al Developer Portal.
+    if (faceUrl) {
+      activity.smallImageKey = faceUrl;
+      activity.smallImageText = accountName || 'Jugando';
+    }
+    return activity;
   }
   return {
     details: 'En el launcher',
@@ -134,16 +160,44 @@ function setEnabled(value) {
   else disconnectClient();
 }
 
-/** Instancia en marcha (ver 'game:launch' en main.js). */
-function setPlaying(instanceName, mcVersion) {
-  currentPresence = { type: 'playing', instanceName, mcVersion, startedAt: new Date() };
+/**
+ * Instancia en marcha (ver 'game:launch' en main.js).
+ * `account` es opcional: { username, faceUrl } — si se pasa, su cara
+ * aparece como imagen chica de la Rich Presence (ver buildActivity). Se
+ * pasa por separado de instanceName/mcVersion, que ya se usaban antes,
+ * para no romper otros llamados existentes a esta función.
+ */
+function setPlaying(instanceName, mcVersion, account = null) {
+  currentServer = null;
+  currentPresence = {
+    type: 'playing',
+    instanceName,
+    mcVersion,
+    startedAt: new Date(),
+    accountName: account?.username || null,
+    faceUrl: account?.faceUrl || null,
+  };
+  pushActivity();
+}
+
+/**
+ * El juego confirmó conexión a un server (directConnect inmediato, o el
+ * log de Minecraft detectando que el jugador entró a uno a mano — ver
+ * CONNECTING_TO_RE en core/launcher.js). `motd` es opcional: si ya se tiene
+ * a mano el nombre lindo del server (ej. el de la lista de "Servidores
+ * recomendados" de Inicio) se muestra en vez del host pelado.
+ */
+function setServer(host, port, motd) {
+  if (currentPresence.type !== 'playing') return;
+  currentServer = { host, port, motd: motd || null };
   pushActivity();
 }
 
 /** El proceso del juego terminó (ver 'onExit' de launcher.launch en main.js). */
 function setIdle() {
   currentPresence = { type: 'idle' };
+  currentServer = null;
   pushActivity();
 }
 
-module.exports = { init, setEnabled, setPlaying, setIdle };
+module.exports = { init, setEnabled, setPlaying, setServer, setIdle };

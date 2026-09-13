@@ -59,7 +59,7 @@ function KeyValueRow({ label, value }) {
 export default function InstanceSettingsPanel({ instance, onClose, onSaved, navigate, pushToast }) {
   const t = useT();
   const NAV_ITEMS = getNavItems(t);
-  const { settings, loadSettings } = useAppStore();
+  const { settings, loadSettings, removeInstance } = useAppStore();
   const [section, setSection] = useState('general');
 
   const [name, setName] = useState(instance.name);
@@ -128,10 +128,20 @@ export default function InstanceSettingsPanel({ instance, onClose, onSaved, navi
     }
   }
 
+  // BUG FIX: antes esto llamaba directo a window.hardLauncher.instances.delete
+  // (el IPC crudo), sin pasar por removeInstance() del store global. Ese IPC
+  // borra la instancia en disco/electron-store, pero nunca actualiza el
+  // array `instances` que Sidebar, Inicio e Instancias leen del store — así
+  // que la instancia borrada seguía apareciendo en todos lados hasta que
+  // alguna otra acción disparara un refreshInstances() (por ejemplo, entrar
+  // a la vista de detalle de otra instancia). removeInstance() ya hace el
+  // borrado optimista: saca la instancia del store al instante y recién
+  // después dispara el borrado real, igual que el mismo botón "Eliminar"
+  // del menú de la tarjeta en Instancias/Inicio.
   async function handleDelete() {
     setDeleting(true);
     try {
-      await window.hardLauncher.instances.delete(instance.id);
+      await removeInstance(instance.id);
       pushToast?.(t('instances.deleted', { name: instance.name }), 'info');
       onClose?.();
       navigate('/instances');

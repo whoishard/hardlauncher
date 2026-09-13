@@ -75,8 +75,33 @@ async function installProjectVersion(instanceId, versionData, onProgress, visite
     iconUrl: project.icon_url,
   };
 
+  // BUG FIX: acá se usaba el `instance` capturado al PRINCIPIO de esta
+  // llamada (arriba del todo), de antes de resolver las dependencias. Pero
+  // cada dependencia resuelta arriba (llamadas recursivas a
+  // installProjectVersion) ya escribió su propia entrada en el store contra
+  // la versión más reciente del array en ESE momento. Si acá se seguía
+  // armando el merge final a partir del `instance.content` viejo (de antes
+  // de que esas dependencias se agregaran), este updateInstance pisaba el
+  // store entero con esa versión desactualizada — las entradas de las
+  // dependencias quedaban "perdidas" del registro, aunque el archivo sí
+  // estaba bien descargado en disco.
+  //
+  // Consecuencia visible: la próxima vez que se pedía la instancia
+  // (instances:get), scanInstanceContent() encontraba esos archivos en
+  // disco pero no en `content` — exactamente el caso que trata como "nadie
+  // sabe de dónde salió este archivo" — y los volvía a agregar, pero como
+  // entradas "manuales" (manual: true, sin projectId/ícono), aunque se
+  // hubiesen instalado perfectamente desde Explorar. Esto es lo que se
+  // reportaba como "algunos mods/resourcepacks/shaders instalados desde el
+  // explorador aparecen como instalados manualmente".
+  //
+  // Ahora se relee el contenido actual de la instancia justo antes de armar
+  // el merge, para partir siempre de la versión más reciente del store
+  // (incluidas las dependencias que se acaban de agregar) en vez de la
+  // capturada al principio de la función.
+  const latestInstance = instanceStore.getInstance(instanceId);
   const updatedContent = [
-    ...instance.content.filter((c) => c.fileName !== primaryFile.filename),
+    ...latestInstance.content.filter((c) => c.fileName !== primaryFile.filename),
     contentEntry,
   ];
   instanceStore.updateInstance(instanceId, { content: updatedContent });
@@ -90,18 +115,35 @@ async function installProjectVersion(instanceId, versionData, onProgress, visite
  * correcta de la instancia y los registra como contenido "manual" (sin
  * projectId, porque no vienen de Modrinth y no tenemos forma de resolver
  * su nombre/ícono reales).
+ *
+ * `preferredType` es el filtro activo en la pestaña Contenido (mods/
+ * resourcepacks/shaders/datapacks) cuando el usuario le dio a "Subir
+ * archivos" — electron/main.js ya lo usa para saber en qué subcarpeta abrir
+ * el diálogo, así que acá se reutiliza para clasificar el archivo también.
+ *
+ * BUG FIX: antes esto se ignoraba por completo y el tipo se adivinaba solo
+ * por extensión (.jar → mod, cualquier otra cosa → resourcepack). Un
+ * shader pack o un datapack subidos como .zip terminaban SIEMPRE
+ * clasificados como "resourcepack" — se copiaban a la carpeta
+ * resourcepacks/ y quedaban con type: 'resourcepack', así que nunca
+ * aparecían en la pestaña "Shaders" ni en "Data Packs" (que filtran por
+ * ese campo type): el usuario los agregaba, no pasaba nada visible, y la
+ * instancia parecía no haberlos detectado. Ahora, si el usuario tenía un
+ * filtro concreto (no "all") seleccionado, se respeta ese tipo; solo se
+ * cae a adivinar por extensión cuando el filtro es "all" (o no se pasó
+ * ninguno), y ahí sí .jar sigue siendo mod y cualquier otra cosa cae a
+ * resourcepack como antes.
  */
-function addLocalFile(instanceId, filePath) {
+function addLocalFile(instanceId, filePath, preferredType) {
   const instance = instanceStore.getInstance(instanceId);
   if (!instance) throw new Error('Instancia no encontrada.');
 
   const fileName = path.basename(filePath);
   const ext = path.extname(fileName).toLowerCase();
-  // .jar siempre es un mod. Un .zip casi siempre es un resource pack (los
-  // shader packs también son .zip, pero son mucho menos comunes al subir
-  // archivos sueltos); si el resultado no es el esperado, el usuario puede
-  // eliminarlo y arrastrarlo a mano en la carpeta correspondiente.
-  const type = ext === '.jar' ? 'mod' : 'resourcepack';
+  const KNOWN_TYPES = new Set(['mod', 'resourcepack', 'shader', 'datapack']);
+  const type = KNOWN_TYPES.has(preferredType)
+    ? preferredType
+    : (ext === '.jar' ? 'mod' : 'resourcepack');
   const targetDir = path.join(instance.dir, folderForType(type));
   fs.mkdirSync(targetDir, { recursive: true });
   const destPath = path.join(targetDir, fileName);
@@ -324,6 +366,91 @@ async function installModpackFromVersion(versionData, instanceName, onProgress) 
   }
 }
 
+/**
+ * Recorre las carpetas mods/resourcepacks/shaderpacks/datapacks de una
+ * instancia en disco y sincroniza contra eso el array `content` guardado
+ * en el store.
+ *
+ * BUG FIX: `content` es solo un registro que el launcher va llevando cada
+ * vez que instala/agrega algo desde la propia app (Explorar, Instalar
+ * modpack, "Subir archivos") — nunca se leía de disco. Si un archivo
+ * llegaba a esas carpetas de cualquier otra forma (arrastrado a mano desde
+ * el explorador de archivos del sistema, copiado desde otro launcher,
+ * restaurado de un backup, etc.) el juego lo cargaba sin problema, pero la
+ * pestaña "Contenido" seguía sin mostrar nada — el registro nunca se
+ * enteraba de que ese archivo existía. Esto es lo que se reportaba como
+ * "agrego el .jar y el launcher no lo detecta, queda vacío".
+ *
+ * Ahora, cada vez que se pide una instancia (instances:get, que es lo que
+ * dispara tanto la carga inicial de la pestaña Contenido como el botón
+ * "Refrescar") se reconcilia primero:
+ *  - Los archivos que ya estaban en `content` (por nombre) conservan todos
+ *    sus metadatos (proyecto, ícono, versión de Modrinth), solo
+ *    actualizando `enabled` según si en disco tienen sufijo .disabled.
+ *  - Los archivos que están en disco pero no en `content` se agregan como
+ *    entradas "manuales", con el tipo que corresponde a la carpeta real
+ *    donde se encontraron (no una adivinanza por extensión).
+ *  - Las entradas de `content` cuyo archivo ya no existe en disco (ni
+ *    habilitado ni .disabled) se eliminan, para no dejar "fantasmas".
+ */
+function scanInstanceContent(instanceId) {
+  const instance = instanceStore.getInstance(instanceId);
+  if (!instance) return null;
+
+  const existingByFile = new Map(instance.content.map((c) => [c.fileName, c]));
+  const foundFileNames = new Set();
+  const reconciled = [];
+
+  for (const [folderName, type] of Object.entries(CONTENT_FOLDER_TYPE)) {
+    const folder = path.join(instance.dir, folderName);
+    let entries;
+    try {
+      entries = fs.readdirSync(folder, { withFileTypes: true });
+    } catch {
+      continue; // la carpeta todavía no existe (nunca se agregó nada de ese tipo)
+    }
+
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const disabled = entry.name.toLowerCase().endsWith('.disabled');
+      const rawName = disabled ? entry.name.slice(0, -'.disabled'.length) : entry.name;
+      const ext = path.extname(rawName).toLowerCase();
+      if (ext !== '.jar' && ext !== '.zip') continue; // ignora .txt, .png sueltos, etc.
+
+      // Si el mismo nombre de archivo ya apareció en otra carpeta de esta
+      // misma pasada, se prioriza la primera coincidencia encontrada.
+      if (foundFileNames.has(rawName)) continue;
+      foundFileNames.add(rawName);
+
+      const existing = existingByFile.get(rawName);
+      if (existing) {
+        reconciled.push(existing.enabled === !disabled ? existing : { ...existing, enabled: !disabled });
+      } else {
+        reconciled.push({
+          fileName: rawName,
+          type,
+          projectId: null,
+          projectTitle: rawName.replace(/\.(jar|zip)$/i, ''),
+          versionId: null,
+          enabled: !disabled,
+          iconUrl: null,
+          manual: true,
+        });
+      }
+    }
+  }
+
+  const nothingChanged =
+    reconciled.length === instance.content.length &&
+    instance.content.every((c) => {
+      const match = reconciled.find((r) => r.fileName === c.fileName);
+      return match === c;
+    });
+  if (nothingChanged) return instance;
+
+  return instanceStore.updateInstance(instanceId, { content: reconciled });
+}
+
 module.exports = {
   installProjectVersion,
   addLocalFile,
@@ -332,4 +459,5 @@ module.exports = {
   installModpack,
   installModpackFromVersion,
   folderForType,
+  scanInstanceContent,
 };

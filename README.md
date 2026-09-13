@@ -4,7 +4,7 @@
 
 [![Última versión](https://img.shields.io/github/v/release/whoishard/hardlauncher?label=%C3%BAltima%20versi%C3%B3n&color=7c3aed&style=for-the-badge)](https://github.com/whoishard/hardlauncher/releases/latest)
 [![Descargas](https://img.shields.io/github/downloads/whoishard/hardlauncher/total?label=descargas&color=a78bfa&style=for-the-badge)](https://github.com/whoishard/hardlauncher/releases)
-[![Plataforma](https://img.shields.io/badge/plataforma-Windows-8b5cf6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/whoishard/hardlauncher/releases/latest)
+[![Plataforma](https://img.shields.io/badge/plataforma-Windows%20%7C%20Linux-8b5cf6?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/whoishard/hardlauncher/releases/latest)
 [![Electron](https://img.shields.io/badge/Electron-30-c4b5fd?style=for-the-badge&logo=electron&logoColor=1a1a1a)](https://www.electronjs.org/)
 
 **Launcher de Minecraft para mods premium y no premium.**
@@ -13,7 +13,7 @@ gestión de instancias, y actualizaciones automáticas. Basado en Modrinth.
 
 [**⬇️ Descargar la última versión**](https://github.com/whoishard/hardlauncher/releases/latest)
 &nbsp;·&nbsp;
-[Reportar un problema](https://github.com/whoishard/hardlauncher/issues)
+[Reportar un problema](https://discord.gg/RAnkPVvJem)
 
 </div>
 
@@ -48,13 +48,29 @@ gestión de instancias, y actualizaciones automáticas. Basado en Modrinth.
 
 ## 🚀 Instalación (para jugadores)
 
+### Windows
+
 1. Andá a [**Releases**](https://github.com/whoishard/hardlauncher/releases/latest)
-   y descargá el `.exe` más reciente.
+   y descargá el `HardLauncher-Windows-Setup-<versión>.exe` más reciente.
 2. Ejecutalo. Windows SmartScreen puede avisar "Windows protegió tu PC" (el
    instalador no está firmado digitalmente) — tocá **Más información** →
    **Ejecutar de todas formas**.
 3. Listo. Las próximas actualizaciones las vas a recibir solo, adentro del
    launcher.
+
+### Linux
+
+1. Andá a [**Releases**](https://github.com/whoishard/hardlauncher/releases/latest)
+   y descargá el `HardLauncher-Linux-<versión>.AppImage` (funciona en
+   cualquier distro) o el `.deb` (Debian/Ubuntu y derivados) más reciente.
+2. **AppImage**: dale permiso de ejecución y correlo —
+   `chmod +x HardLauncher-Linux-*.AppImage && ./HardLauncher-Linux-*.AppImage`.
+   **.deb**: instalalo con `sudo apt install ./HardLauncher-Linux-*.deb` (o
+   con tu gestor de paquetes gráfico habitual).
+3. La auto-actualización dentro del launcher funciona en ambos formatos; si
+   tu distro no la soporta (algunos entornos AppImage sandboxeados), el
+   launcher te avisa y te deja descargar la versión nueva a mano en vez de
+   fallar en silencio.
 
 <br />
 

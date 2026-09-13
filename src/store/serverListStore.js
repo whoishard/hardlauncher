@@ -25,6 +25,12 @@ const DEFAULT_SERVERS = [
     host: 'arefy.net',
     port: 25565,
   },
+  {
+    id: 'universocraft',
+    name: 'Universocraft Network',
+    host: 'mc.universocraft.com',
+    port: 25565,
+  },
 ];
 
 function listServers() {

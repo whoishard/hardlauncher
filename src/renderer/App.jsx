@@ -20,6 +20,7 @@ import { useAppStore } from './store.js';
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const mainContentRef = React.useRef(null);
   const refreshAccounts = useAppStore((s) => s.refreshAccounts);
   const refreshInstances = useAppStore((s) => s.refreshInstances);
   const loadSettings = useAppStore((s) => s.loadSettings);
@@ -84,6 +85,17 @@ export default function App() {
     document.documentElement.setAttribute('data-lang', lang);
   }, [language]);
 
+  // .main-content es el único contenedor con scroll (ver theme.css) y vive
+  // fuera del <Routes>, así que NO se remonta al navegar entre vistas: si
+  // quedaste scrolleado abajo del todo en Inicio y vas a Explorar, arrancás
+  // igual de abajo en la vista nueva en vez de arriba. Lo reseteamos a mano
+  // en cada cambio de ruta. Nota: no puede ir en el mismo efecto que aplica
+  // el idioma/tema de arriba porque esos corren también cuando cambian
+  // theme/language sin que haya navegación real.
+  useEffect(() => {
+    mainContentRef.current?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [location.pathname]);
+
   return (
     <div className="app-root">
       <AmbientBackground />
@@ -95,7 +107,7 @@ export default function App() {
         <Sidebar />
         <div className="content-column">
           <TopBar />
-          <div className="main-content">
+          <div className="main-content" ref={mainContentRef}>
             <ErrorBoundary key={location.pathname}>
               {/* mode="wait" para que la vista saliente termine de desvanecerse
                   antes de que entre la nueva: evita el parpadeo de dos vistas

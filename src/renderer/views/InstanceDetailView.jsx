@@ -159,7 +159,10 @@ export default function InstanceDetailView() {
     if (searchParams.get('autoplay') === '1' && instance && !launching) {
       const joinHost = searchParams.get('joinHost');
       const joinPort = searchParams.get('joinPort');
-      const directConnect = joinHost ? { host: joinHost, port: joinPort ? Number(joinPort) : 25565 } : null;
+      const joinName = searchParams.get('joinName');
+      const directConnect = joinHost
+        ? { host: joinHost, port: joinPort ? Number(joinPort) : 25565, name: joinName || null }
+        : null;
       navigate(`/instances/${id}`, { replace: true });
       handleLaunch(directConnect);
     }

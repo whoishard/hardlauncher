@@ -61,6 +61,18 @@ contextBridge.exposeInMainWorld('hardLauncher', {
     // instancia ya creada) — a diferencia de list/ping, que solo leen.
     addToAllInstances: (serverId) => ipcRenderer.invoke('recommendedServers:addToAllInstances', serverId),
   },
+  // Contador global de "jugadores en línea" (ver src/core/onlinePresence.js).
+  // get() sirve para pintar un valor apenas monta el componente, sin
+  // esperar al primer 'onUpdate'; después de eso, onUpdate ya cubre
+  // cualquier cambio en tiempo real por el resto de la sesión.
+  onlinePlayers: {
+    get: () => ipcRenderer.invoke('onlinePlayers:get'),
+    onUpdate: (cb) => {
+      const listener = (_e, count) => cb(count);
+      ipcRenderer.on('onlinePlayers:update', listener);
+      return () => ipcRenderer.removeListener('onlinePlayers:update', listener);
+    },
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     update: (partial) => ipcRenderer.invoke('settings:update', partial),

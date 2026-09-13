@@ -146,7 +146,10 @@ export default function MinecraftServerList() {
       pushToast(t('servers.anotherRunning', { name: runningInstance.name }), 'error');
       return;
     }
-    navigate(`/instances/${instanceId}?autoplay=1&joinHost=${encodeURIComponent(server.host)}&joinPort=${server.port}`);
+    navigate(
+      `/instances/${instanceId}?autoplay=1&joinHost=${encodeURIComponent(server.host)}&joinPort=${server.port}` +
+        `&joinName=${encodeURIComponent(server.name)}`
+    );
   }
 
   function handlePlayClick(server) {

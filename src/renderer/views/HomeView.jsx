@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store.js';
-import { useT } from '../i18n.js';
+import { useT, formatPlaytimeShort } from '../i18n.js';
 import MinecraftServerList from '../components/MinecraftServerList.jsx';
 import InstanceIcon from '../components/InstanceIcon.jsx';
 import Icon from '../components/Icon.jsx';
@@ -28,11 +28,53 @@ export default function HomeView() {
   const t = useT();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
+  // Solo se usa para el path de la carpeta de instancias (acceso rápido
+  // "Abrir carpeta" más abajo) — ya no se muestra ningún total en bytes.
+  const [storage, setStorage] = useState(null);
+  // null mientras no se sabe nada todavía (o si el launcher no tiene
+  // configurado el contador, ver onlinePresenceConfig.js) — en ese caso el
+  // badge directamente no se muestra, en vez de mostrar "0" y sugerir que
+  // no hay nadie jugando.
+  const [onlinePlayers, setOnlinePlayers] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.hardLauncher.storage.info().then((info) => {
+      if (!cancelled) setStorage(info);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.hardLauncher.onlinePlayers.get().then((count) => {
+      if (!cancelled) setOnlinePlayers(count);
+    });
+    const unsubscribe = window.hardLauncher.onlinePlayers.onUpdate((count) => setOnlinePlayers(count));
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   const recent = [...instances].sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0)).slice(0, 2);
+  const totalPlaytimeMs = instances.reduce((sum, inst) => sum + (inst.totalPlaytime || 0), 0);
 
   function handlePlay(instanceId) {
     navigate(`/instances/${instanceId}?autoplay=1`);
+  }
+
+  function handleOpenInstancesFolder() {
+    if (storage) window.hardLauncher.storage.openFolder(storage.instances.path);
+  }
+
+  function handleCheckUpdates() {
+    // El resultado (ya tenés la última / descargando / error) lo muestra
+    // solo <UpdateToast/>, montado siempre en App.jsx — no hace falta
+    // esperar la respuesta ni manejar nada acá.
+    window.hardLauncher.updater.check();
   }
 
   return (
@@ -74,6 +116,30 @@ export default function HomeView() {
               </motion.div>
             </div>
           </div>
+          <motion.div
+            className="home-hero-summary"
+            variants={staggerContainer}
+            initial="hidden"
+            animate="show"
+          >
+            <motion.div className="home-hero-stat" variants={staggerItem}>
+              <div className="home-hero-stat-value">{instances.length}</div>
+              <div className="home-hero-stat-label">{t('home.stats.instances')}</div>
+            </motion.div>
+            <div className="home-hero-stat-divider" />
+            <motion.div className="home-hero-stat" variants={staggerItem}>
+              <div className="home-hero-stat-value">{formatPlaytimeShort(totalPlaytimeMs, t.lang)}</div>
+              <div className="home-hero-stat-label">{t('home.playtime')}</div>
+            </motion.div>
+            <div className="home-hero-stat-divider" />
+            <motion.div className="home-hero-stat home-hero-stat-online" variants={staggerItem}>
+              <div className="home-hero-stat-value">
+                <span className="home-hero-stat-online-dot" />
+                {onlinePlayers === null ? '—' : onlinePlayers}
+              </div>
+              <div className="home-hero-stat-label">{t('home.stats.online')}</div>
+            </motion.div>
+          </motion.div>
           <div className="home-hero-stats">
             <div className="home-hero-skin-widget">
               <img className="home-hero-skin-widget-img" src={skinPreview} alt="Skin de Minecraft" />
@@ -83,6 +149,17 @@ export default function HomeView() {
             </div>
           </div>
         </motion.div>
+
+        <div className="home-quick-actions">
+          <button type="button" className="home-quick-action" onClick={handleOpenInstancesFolder} disabled={!storage}>
+            <Icon name="folder" size={15} />
+            {t('home.openInstancesFolder')}
+          </button>
+          <button type="button" className="home-quick-action" onClick={handleCheckUpdates}>
+            <Icon name="refresh" size={15} />
+            {t('home.checkUpdates')}
+          </button>
+        </div>
 
         <div className="section-heading">
           <Icon name="layers" size={16} />
