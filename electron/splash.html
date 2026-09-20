@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hard Launcher</title>
+    <style>
+      /* ==========================================================================
+         Pantalla de carga — rediseño "forja". La versión anterior (halo
+         violeta + trama isométrica en diagonal + barra en degradé pastel)
+         era el kit genérico de dashboard hecho por IA, sin relación real con
+         un launcher de Minecraft. Este rediseño se apoya en el propio
+         nombre/tema del producto: metal caliente (ámbar-brasa, no violeta),
+         una cuadrícula cuadrada tipo mesa de crafteo en vez de la diagonal
+         isométrica, y bordes duros (radios chicos) acordes a "Hard". Se
+         mantienen intactas todas las optimizaciones de rendimiento del
+         archivo anterior (nada de animar filter/blur/width; todo por
+         transform+opacity con will-change puntual) porque ese trabajo no
+         tiene relación con el aspecto visual y se probó que evita el jank
+         reportado. */
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        font-family: Inter, 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      /* Todo lo "rojo" de esta pantalla (grilla, resplandor, veta del velo,
+         corchetes HUD, barra de progreso, ticks del footer, y la palabra
+         "Launcher" del wordmark) sale de estas dos variables en vez de
+         colores fijos — antes quedaba pegado en rojo aunque el launcher
+         entero cambiara a acento morado (ver AppearanceSection en
+         SettingsModal.jsx / ACCENT_SWATCHES). main.js agrega la clase
+         .accent-purple al <body> cuando settingsStore.accentColor es
+         'purple' (mismo lugar de donde ya lee qué logo-mark cargar), y acá
+         abajo esa clase pisa las dos variables — un solo punto de cambio
+         en vez de tener que tocar cada regla suelta. */
+      :root {
+        --accent-rgb: 216, 31, 51;
+        --accent-hex: #d81f33;
+      }
+      /* Mismos dos tonos que --accent-gradient/[data-accent='purple'] en
+         theme.css y ACCENT_SWATCHES.purple en SettingsModal.jsx — se
+         repiten acá a mano porque este splash es un documento HTML aparte
+         que no carga theme.css (arranca antes que el bundle del renderer). */
+      body.accent-purple {
+        --accent-rgb: 124, 58, 255;
+        --accent-hex: #7c3aff;
+      }
+      .frame {
+        width: 100%;
+        height: 100%;
+        border-radius: 20px;
+        overflow: hidden;
+        position: relative;
+        /* Mismo tono que backgroundColor de mainWindow (ver electron/main.js):
+           así, apenas closeSplash() empieza a desvanecer este frame, lo que
+           se ve por detrás/a través es un fondo del mismo color en vez de un
+           parpadeo hacia un gris distinto. */
+        background: #16181c;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 34px;
+        opacity: 0;
+        animation: fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        /* PERF: promueve el frame entero a su propia capa compuesta desde el
+           arranque (no recién cuando arranca la transición de salida). */
+        will-change: transform, opacity;
+      }
+      /* Filo superior sutil, como el borde de una plancha de metal recibiendo
+         luz de arriba. Es un solo gradiente ESTÁTICO (no se anima nada acá:
+         ni opacity ni transform), así que no le agrega ningún costo de
+         compositor a la pantalla — es la forma más barata posible de sumar
+         algo de "materialidad" al fondo. */
+      .frame::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 40px);
+      }
+      /* Antes acá iban 4 corchetes en L en las esquinas, tipo mira/HUD de
+         juego (.hud-corner) — se sacaron, quedaban como líneas rojas
+         sueltas pegadas a cada esquina en vez de leerse como un motivo de
+         diseño intencional. */
+      .frame.exit {
+        animation: none;
+        transition:
+          opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+          transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        opacity: 0;
+        transform: scale(1.045);
+      }
+      /* Todo el contenido decorativo se agrupa en un wrapper para poder
+         desvanecerlo un poco más rápido que el frame durante la salida. */
+      .backdrop {
+        position: absolute;
+        inset: 0;
+        transition: opacity 0.45s ease;
+        will-change: opacity;
+      }
+      .frame.exit .backdrop { opacity: 0; }
+      /* Cuadrícula cuadrada fina, quieta (sin drift ni rotación): evoca una
+         mesa de crafteo / grilla de bloques en vez de la trama isométrica
+         genérica de antes. Estática a propósito — un fondo que no se mueve
+         dedica todo el "movimiento permitido" de la pantalla a la barra de
+         carga, que es lo único que de verdad comunica algo. */
+      .grid {
+        position: absolute;
+        inset: -5%;
+        background-image:
+          linear-gradient(rgba(var(--accent-rgb), 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(var(--accent-rgb), 0.05) 1px, transparent 1px);
+        background-size: 64px 64px;
+        mask-image: radial-gradient(ellipse 70% 55% at 50% 44%, black 15%, transparent 78%);
+        -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 44%, black 15%, transparent 78%);
+        pointer-events: none;
+      }
+      /* Un único resplandor cálido, anclado detrás del logo — no dos manchas
+         gigantes flotando en las esquinas. El logo es lo que "emite" luz,
+         no la ventana entera.
+         PERF: antes esto usaba filter: blur(64px) sobre el radial-gradient
+         para suavizar el borde. Ese filter era el elemento más caro de toda
+         la pantalla de carga: al ser el único filter de todo el archivo,
+         corriendo en bucle (glow-breathe, infinite) durante toda la carga y
+         justo mientras la ventana principal pinta su propio fade-in +
+         fondo ambiental atrás, terminaba compitiendo por el compositor en
+         el momento más exigente del arranque — el jank reportado. Un
+         radial-gradient con varias paradas de color ya da una caída
+         suave por sí solo (para eso está "transparent" al final), así que
+         el filter era redundante: se saca el filter entero y solo queda
+         transform+opacity animándose, sin ningún blur de por medio. */
+      .glow {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 620px;
+        height: 620px;
+        transform: translate(-50%, -58%);
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(var(--accent-rgb), 0.30) 0%, rgba(var(--accent-rgb), 0.16) 32%, rgba(var(--accent-rgb), 0.05) 56%, transparent 72%);
+        opacity: 0.85;
+        pointer-events: none;
+        animation: glow-breathe 3.4s ease-in-out infinite;
+        will-change: opacity, transform;
+      }
+      .veil {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(ellipse 62% 50% at 50% 46%, rgba(22, 24, 28, 0.05), rgba(22, 24, 28, 0.94) 74%),
+          linear-gradient(180deg, rgba(var(--accent-rgb), 0.05), transparent 35%, rgba(22, 24, 28, 0.55));
+        pointer-events: none;
+      }
+      /* PERF: antes esto era box-shadow: inset con blur de 160px sobre toda
+         la ventana (1280x800) — una pasada de blur grande es cara de
+         rasterizar aunque sea estática (se paga una vez, pero de golpe,
+         justo en el mismo instante en que arrancan todas las animaciones
+         de entrada). Un radial-gradient oscureciendo hacia los bordes da el
+         mismo viñeteado sin necesitar ninguna pasada de blur. */
+      .vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(ellipse 75% 70% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+      }
+      /* Chispas de forja: motitas cuadradas (estética "pixel" de Minecraft)
+         subiendo despacio, ahora en tono brasa en vez de violeta — leen
+         como saltan del logo hacia arriba, no como polvo genérico. */
+      .particles {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .particle {
+        position: absolute;
+        bottom: -24px;
+        width: 6px;
+        height: 6px;
+        background: rgba(252, 191, 108, 0.85);
+        box-shadow: 0 0 6px 1px rgba(var(--accent-rgb), 0.6);
+        animation: rise-fade linear infinite;
+        will-change: transform;
+      }
+      .particle:nth-child(1) { left: 40%; width: 5px; height: 5px; animation-duration: 9s;   animation-delay: 0s; }
+      .particle:nth-child(2) { left: 47%; width: 4px; height: 4px; animation-duration: 7.5s; animation-delay: 1.6s; }
+      .particle:nth-child(3) { left: 53%; width: 6px; height: 6px; animation-duration: 10s;  animation-delay: 3.1s; }
+      .particle:nth-child(4) { left: 58%; width: 4px; height: 4px; animation-duration: 8.4s; animation-delay: 0.8s; }
+      .particle:nth-child(5) { left: 44%; width: 5px; height: 5px; animation-duration: 11s;  animation-delay: 2.4s; }
+      .particle:nth-child(6) { left: 62%; width: 4px; height: 4px; animation-duration: 9.6s; animation-delay: 4.2s; }
+      .brand {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        animation: rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+      }
+      /* Logo grande a la izquierda del wordmark — layout "isotipo + texto".
+         Mismo PNG recortado sin fondo que usa el resto del launcher
+         (TitleBar.jsx, ícono de ventana/bandeja). */
+      .brand-top {
+        display: flex;
+        align-items: center;
+        /* Negativo a propósito: el PNG del logo trae un margen transparente
+           propio a los costados (no es un recorte ajustado al glyph), así
+           que incluso con gap:0 seguía viéndose separado del título. Este
+           valor come parte de ese margen transparente sin llegar a tocar
+           el trazo rojo visible. */
+        gap: -8px;
+      }
+      .brand-logo {
+        /* Más grande que la versión anterior (280px) para que el isotipo
+           pese más contra el wordmark de al lado. */
+        height: 340px;
+        aspect-ratio: 403 / 727;
+        object-fit: contain;
+        object-position: center;
+        flex-shrink: 0;
+      }
+      .wordmark-row {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        letter-spacing: -0.03em;
+        font-weight: 800;
+        font-size: 84px;
+        line-height: 1;
+      }
+      .wordmark-hard { color: #f5f5f6; }
+      .wordmark-app { color: var(--accent-hex); }
+      .bar-wrap {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        animation: rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.16s both;
+      }
+      /* Barra recta, con borde propio y fondo "hundido": una barra de
+         durabilidad, no una píldora flotante en degradé pastel. */
+      /* Barra recta, con borde propio y fondo "hundido": una barra de
+         durabilidad, no una píldora flotante en degradé pastel. Las marcas
+         de segmento son un solo background-image ESTÁTICO (repeating-
+         linear-gradient) sobre el track — no son elementos nuevos ni nada
+         que se anime, así que no suman ni un solo layer de compositor. */
+      .bar {
+        position: relative;
+        width: 300px;
+        height: 8px;
+        border-radius: 2px;
+        background:
+          repeating-linear-gradient(90deg, transparent 0, transparent 29px, rgba(0, 0, 0, 0.4) 29px, rgba(0, 0, 0, 0.4) 30px),
+          rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+      }
+      /* PERF: se anima transform:scaleX() (compositor puro), nunca width. */
+      .fill {
+        position: relative;
+        height: 100%;
+        width: 100%;
+        background: var(--accent-hex);
+        box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.55);
+        transform-origin: left center;
+        transform: scaleX(0.06);
+        animation: load 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        will-change: transform;
+      }
+      /* Brillo superior fijo sobre el relleno — un degradé estático, no una
+         segunda cosa animándose: viaja pegado al fill (mismo elemento) así
+         que escala junto con él gratis, sin ningún cálculo extra por frame. */
+      .fill::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), transparent 55%);
+      }
+      /* main.js agrega esta clase apenas el launcher de atrás ya está listo:
+         la barra siempre llega a completarse de verdad en vez de quedar
+         pisada a mitad del keyframe de "load" (que nunca pasa del 90%). */
+      .frame.done .fill {
+        animation: none;
+        transform: scaleX(1);
+        transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .tip {
+        /* Antes 13px — apenas legible comparado con el resto de la
+           pantalla. */
+        font-size: 16px;
+        color: rgba(229, 231, 235, 0.55);
+        letter-spacing: 0.01em;
+        min-height: 20px;
+        opacity: 0;
+        transition: opacity 0.4s ease;
+      }
+      .tip.show { opacity: 1; }
+      .footer {
+        position: absolute;
+        left: 28px;
+        right: 28px;
+        bottom: 22px;
+        z-index: 1;
+        display: flex;
+        /* Vuelve a "space-between" (antes se había puesto "flex-end" al
+           sacar el wordmark chico que vivía acá) para separar el aviso de
+           derechos de autor, a la izquierda, de las muescas de carga, que
+           se quedan ancladas a la derecha donde ya estaban. */
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: rgba(229, 231, 235, 0.32);
+        animation: rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.24s both;
+      }
+      /* Reemplaza los tres puntitos pulsando (genérico) por tres muescas
+         rectas que se van llenando en secuencia — misma idea de "está
+         trabajando" pero con el mismo lenguaje de bordes duros que la barra
+         de arriba, en vez de otro elemento circular más. */
+      .footer-ticks { display: flex; gap: 4px; }
+      .footer-ticks span {
+        width: 10px;
+        height: 4px;
+        background: rgba(var(--accent-rgb), 0.25);
+        animation: tick-fill 1.2s ease-in-out infinite;
+      }
+      .footer-ticks span:nth-child(2) { animation-delay: 0.15s; }
+      .footer-ticks span:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes tick-fill {
+        0%, 100% { background: rgba(var(--accent-rgb), 0.25); }
+        50% { background: rgba(var(--accent-rgb), 0.9); }
+      }
+      @keyframes fade-in { to { opacity: 1; } }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes glow-breathe {
+        0%, 100% { opacity: 0.7; transform: translate(-50%, -58%) scale(1); }
+        50% { opacity: 1; transform: translate(-50%, -58%) scale(1.08); }
+      }
+      @keyframes rise-fade {
+        0% { transform: translateY(0) scale(1); opacity: 0; }
+        10% { opacity: 0.9; }
+        90% { opacity: 0.5; }
+        100% { transform: translateY(-560px) scale(0.6); opacity: 0; }
+      }
+      @keyframes load {
+        0% { transform: scaleX(0.06); }
+        22% { transform: scaleX(0.22); }
+        48% { transform: scaleX(0.46); }
+        72% { transform: scaleX(0.71); }
+        100% { transform: scaleX(0.9); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .glow, .fill, .frame, .brand, .bar-wrap, .particle, .footer-ticks span {
+          animation: none !important;
+        }
+        .frame { opacity: 1; }
+        .fill { transform: scaleX(0.7); }
+        .tip { transition: none; }
+        .frame.exit { transition: opacity 0.15s linear; opacity: 0; transform: none; }
+        .frame.exit .backdrop { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame" id="frame">
+      <div class="backdrop">
+        <div class="grid"></div>
+        <div class="glow"></div>
+        <div class="particles" id="particles">
+          <span class="particle"></span><span class="particle"></span><span class="particle"></span>
+          <span class="particle"></span><span class="particle"></span><span class="particle"></span>
+        </div>
+        <div class="veil"></div>
+        <div class="vignette"></div>
+      </div>
+      <div class="brand">
+        <div class="brand-top">
+          <img class="brand-logo" id="logo-inline" src="./assets/logo-mark.png" alt="" />
+          <div class="wordmark-row">
+            <span class="wordmark-hard">Hard</span>
+            <span class="wordmark-app">Launcher</span>
+          </div>
+        </div>
+      </div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="fill" id="fill"></div></div>
+        <div class="tip" id="tip"></div>
+      </div>
+      <div class="footer">
+        <span class="footer-copyright" id="copyright"></span>
+        <span class="footer-ticks"><span></span><span></span><span></span></span>
+      </div>
+    </div>
+    <script>
+      // El año sale de Date() en vez de estar escrito a mano acá: así el
+      // aviso de derechos de autor de esta pantalla no queda pegado en el
+      // año en que se tocó este archivo por última vez.
+      document.getElementById('copyright').textContent = '© ' + new Date().getFullYear() + ' Hard Launcher';
+
+      // Puramente cosmético: no representa pasos reales del arranque (el
+      // proceso principal no expone ese detalle todavía), solo le da vida al
+      // espacio extra de la ventana grande mientras la barra de arriba corre
+      // su animación normal. Si en algún momento el proceso principal manda
+      // pasos reales, esto se reemplaza fácil por mensajes recibidos por IPC
+      // en vez de esta lista fija.
+      var tips = [
+        'Preparando tu experiencia...',
+        'Sincronizando con el mundo de Minecraft...',
+        'Cargando componentes del launcher...',
+        'Casi listo...',
+      ];
+      var tipEl = document.getElementById('tip');
+      var i = 0;
+      function showTip() {
+        tipEl.classList.remove('show');
+        setTimeout(function () {
+          tipEl.textContent = tips[i % tips.length];
+          tipEl.classList.add('show');
+          i++;
+        }, 220);
+      }
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        tipEl.textContent = tips[0];
+        tipEl.classList.add('show');
+      } else {
+        showTip();
+        setInterval(showTip, 1400);
+      }
+    </script>
+  </body>
+</html>
