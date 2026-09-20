@@ -24,11 +24,21 @@ jobs:
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
+
+      - name: Cache de Electron
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Instalar dependencias
         run: npm install --include=dev
+        env:
+          ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+          npm_config_fetch_retries: 5
+          npm_config_fetch_retry_maxtimeout: 60000
 
       - name: Compilar y publicar Release
         env:

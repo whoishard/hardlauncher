@@ -1,12 +1,9 @@
 {
   "name": "hard-launcher",
-  "version": "1.1.0",
+  "version": "1.0.9",
   "private": true,
   "main": "electron/main.js",
-  "author": {
-    "name": "Hard Launcher",
-    "email": "contacto@hardlauncher.app"
-    },
+  "author": "Hard Launcher <contacto@hardlauncher.app>",
   "description": "Hard Launcher",
   "scripts": {
     "start": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
