@@ -3,7 +3,10 @@
   "version": "1.1.0",
   "private": true,
   "main": "electron/main.js",
-  "author": "whoishard",
+  "author": {
+    "name": "Hard Launcher",
+    "email": "contacto@hardlauncher.app"
+    },
   "description": "Hard Launcher",
   "scripts": {
     "start": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
