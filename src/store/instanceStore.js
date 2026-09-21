@@ -408,6 +408,71 @@ function freeWorldFolderName(savesDir, baseName) {
   return candidate;
 }
 
+/**
+ * Importa un mundo desde afuera de la instancia: arrastrado como carpeta
+ * suelta (la del propio mundo, con level.dat adentro) o como .zip que la
+ * contiene. Se usa desde "Mundos" → arrastrar y soltar (ver WorldsTab,
+ * InstanceDetailView.jsx) y deja el mundo ya listo para jugar en /saves,
+ * sin que el jugador tenga que descomprimir nada a mano.
+ */
+function importWorld(instanceId, sourcePath) {
+  const instance = getInstance(instanceId);
+  if (!instance) throw new Error('Instancia no encontrada.');
+  const savesDir = getSavesDir(instance);
+  if (!fs.existsSync(savesDir)) fs.mkdirSync(savesDir, { recursive: true });
+
+  const isZip = sourcePath.toLowerCase().endsWith('.zip');
+  const baseName = (isZip ? path.basename(sourcePath, path.extname(sourcePath)) : path.basename(sourcePath)) || 'Mundo importado';
+  const folderName = freeWorldFolderName(savesDir, baseName);
+  const destPath = path.join(savesDir, folderName);
+
+  if (isZip) {
+    const zip = new AdmZip(sourcePath);
+    const entries = zip.getEntries().filter((e) => !e.isDirectory);
+
+    // El level.dat puede estar suelto en la raíz del zip, o anidado adentro
+    // de una carpeta (típico al comprimir la carpeta del mundo entera desde
+    // el Explorador/Finder: "MiMundo/level.dat" en vez de "level.dat"
+    // directo) — se busca la primera ocurrencia a cualquier profundidad y
+    // se usa su carpeta contenedora como raíz real del mundo, descartando
+    // cualquier archivo suelto fuera de ella.
+    const levelDatEntry = entries.find((e) => e.entryName === 'level.dat' || e.entryName.toLowerCase().endsWith('/level.dat'));
+    if (!levelDatEntry) {
+      throw new Error('Ese .zip no contiene un mundo de Minecraft válido (no se encontró level.dat).');
+    }
+    const stripPrefix = levelDatEntry.entryName.slice(0, levelDatEntry.entryName.length - 'level.dat'.length);
+
+    fs.mkdirSync(destPath, { recursive: true });
+    for (const entry of entries) {
+      if (stripPrefix && !entry.entryName.startsWith(stripPrefix)) continue;
+      const relative = stripPrefix ? entry.entryName.slice(stripPrefix.length) : entry.entryName;
+      if (!relative) continue;
+      const outPath = path.join(destPath, relative);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, entry.getData());
+    }
+  } else {
+    if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isDirectory()) {
+      throw new Error('Arrastrá la carpeta del mundo o un .zip que la contenga.');
+    }
+    // Mismo caso que con los .zip: si la carpeta soltada no tiene level.dat
+    // directo pero tiene una única subcarpeta que sí, se usa esa (soltaron
+    // la carpeta contenedora, no el mundo mismo).
+    let src = sourcePath;
+    if (!fs.existsSync(path.join(src, 'level.dat'))) {
+      const children = fs.readdirSync(src, { withFileTypes: true }).filter((e) => e.isDirectory());
+      const withLevelDat = children.find((c) => fs.existsSync(path.join(src, c.name, 'level.dat')));
+      if (!withLevelDat) {
+        throw new Error('Esa carpeta no parece ser un mundo de Minecraft (no se encontró level.dat).');
+      }
+      src = path.join(src, withLevelDat.name);
+    }
+    fs.cpSync(src, destPath, { recursive: true });
+  }
+
+  return buildWorldEntry(instance, savesDir, folderName);
+}
+
 /** Duplica un mundo entero (carpeta /saves/<nombre>, incluyendo Nether/End
  * si los tiene) con un nombre nuevo, y también actualiza el "LevelName" de
  * su copia del level.dat para que el juego muestre el nombre nuevo en el
@@ -809,6 +874,7 @@ module.exports = {
   getInstanceSize,
   openInstanceFolder,
   listWorlds,
+  importWorld,
   duplicateWorld,
   renameWorld,
   updateWorldSettings,

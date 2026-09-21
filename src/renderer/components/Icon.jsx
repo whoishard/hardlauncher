@@ -41,13 +41,21 @@ const PATHS = {
   folder: <path d="M3 7a1 1 0 011-1h4.5l1.5 2H20a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V7z" strokeLinecap="round" strokeLinejoin="round" />,
   // Triángulo con las tres puntas redondeadas (cada vértice se "corta" a un
   // par de puntos sobre sus dos lados y se une con una curva cuadrática con
-  // control en el vértice original). Antes iba relleno sólido; ahora es
-  // solo el contorno (sin fill, hereda el stroke="currentColor" del <svg>
-  // de más abajo), igual al ícono de Play que usa Modrinth App.
+  // control en el vértice original): solo contorno, sin relleno, calcado
+  // del ícono de "Play" pedido por el usuario. Ya había pasado por acá antes
+  // (ver historial): con el contorno a igual "size" que el resto de los
+  // íconos se leía chico y débil al lado del label del botón "Jugar", porque
+  // un triángulo hueco ocupa mucha menos superficie visual que uno relleno.
+  // Esta vez, en lugar de volver a rellenarlo (que ya no matchea la imagen
+  // de referencia), se compensa con un trazo más grueso que el del resto de
+  // los íconos (strokeWidth propio en vez de heredar el del <svg>) y
+  // agrandando el "size" en cada lugar donde se usa (ver esos call sites).
   play: (
     <path
       d="M7 7.3L7 16.7Q7 18.5 8.55 17.58L16.45 12.92Q18 12 16.45 11.08L8.55 6.42Q7 5.5 7 7.3Z"
       strokeLinejoin="round"
+      strokeWidth={2.4}
+      fill="none"
     />
   ),
   palette: (

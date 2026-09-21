@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
 import { useT } from '../i18n.js';
 
@@ -25,10 +25,44 @@ export default function ConsoleView({ lines, running, hasError, onClear }) {
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef(null);
 
+  // BUG FIX: al cerrar el juego, Minecraft/Forge suelen imprimir la misma
+  // línea de apagado (guardando cada dimensión, deteniendo cada hilo, etc.)
+  // muchas veces seguidas — antes cada una se pintaba como su propia fila,
+  // así que la consola parecía quedarse "en bucle" mostrando decenas de
+  // líneas iguales una debajo de la otra. Ahora se agrupan las líneas
+  // consecutivas idénticas en una sola fila con un contador ("×N") en vez
+  // de repetirla — collapsedLines es solo para pintar; `lines` (para
+  // copiar/limpiar) sigue teniendo el log completo sin tocar.
+  const collapsedLines = useMemo(() => {
+    const out = [];
+    for (const line of lines) {
+      const last = out[out.length - 1];
+      if (last && last.text === line) {
+        last.count += 1;
+      } else {
+        out.push({ text: line, count: 1 });
+      }
+    }
+    return out;
+  }, [lines]);
+
   useEffect(() => {
     if (!autoScroll || !scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [lines, autoScroll]);
+  }, [collapsedLines, autoScroll]);
+
+  // BUG FIX: si el jugador scrolleó hacia arriba en algún momento mientras
+  // el juego corría (para leer algo más arriba), el auto-scroll se
+  // desactivaba y se quedaba así — al cerrar el juego, el mensaje final
+  // ("El proceso del juego terminó...") caía fuera de vista y había que
+  // scrollear a mano hasta el final para verlo. Ahora, apenas el juego deja
+  // de estar corriendo, se reactiva el auto-scroll solo, así el resultado
+  // final siempre queda a la vista sin tener que hacer nada.
+  const wasRunning = useRef(running);
+  useEffect(() => {
+    if (wasRunning.current && !running) setAutoScroll(true);
+    wasRunning.current = running;
+  }, [running]);
 
   // Si el usuario scrollea manualmente hacia arriba, se desactiva el
   // auto-scroll para que pueda leer tranquilo; si vuelve a bajar del todo,
@@ -81,16 +115,17 @@ export default function ConsoleView({ lines, running, hasError, onClear }) {
       </div>
 
       <div className="console-view" ref={scrollRef} onScroll={handleScroll}>
-        {lines.length === 0 ? (
+        {collapsedLines.length === 0 ? (
           <div className="console-empty">
             <Icon name="layers" size={22} />
             {t('console.empty')}
           </div>
         ) : (
-          lines.map((line, i) => (
-            <div key={i} className={'console-line level-' + detectLevel(line)}>
+          collapsedLines.map((entry, i) => (
+            <div key={i} className={'console-line level-' + detectLevel(entry.text)}>
               <span className="console-line-index">{i + 1}</span>
-              <span className="console-line-text">{line}</span>
+              <span className="console-line-text">{entry.text}</span>
+              {entry.count > 1 && <span className="console-line-repeat">×{entry.count}</span>}
             </div>
           ))
         )}

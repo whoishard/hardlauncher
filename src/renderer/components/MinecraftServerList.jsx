@@ -269,7 +269,7 @@ export default function MinecraftServerList() {
                   whileTap={{ scale: 0.97 }}
                   onClick={() => handlePlayClick(server)}
                 >
-                  <Icon name="play" size={14} />
+                  <Icon name="play" size={17} />
                   {t('servers.play')}
                 </motion.button>
                 <AnimatePresence>

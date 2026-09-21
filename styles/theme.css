@@ -1060,6 +1060,25 @@ h1, h2, h3, h4 {
   margin-top: 22px;
 }
 
+/* Recuadro punteado permanente que indica "podés soltar un archivo acá",
+   dentro del empty-state de la pestaña Mundos (ver worlds.dropHint) —
+   antes este aviso solo se veía mientras se estaba arrastrando algo
+   encima (dragOver), así que si nadie lo probaba nunca se enteraba de que
+   se podía. Estilo sutil (borde punteado tenue, sin el color de acento
+   fuerte que sí usa .files-drop-overlay durante el drag real) para que no
+   compita visualmente con el título/subtítulo de arriba. */
+.empty-state-drop-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 10px 18px;
+  border: 1.5px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
 /* Grid de 3 columnas en vez de flex: las columnas de los costados (info y
    acciones) miden lo mismo (1fr cada una), así la columna de versión del
    medio queda SIEMPRE centrada en el ancho total de la fila, sea cual sea
@@ -1380,10 +1399,17 @@ h1, h2, h3, h4 {
   gap: 10px;
   border: 2px dashed var(--accent-primary);
   border-radius: var(--radius-sm);
-  background: rgba(var(--accent-rgb), 0.08);
+  /* Fondo casi opaco (antes era rgba(accent, 0.08), semitransparente):
+     con tan poca opacidad el título/subtítulo del empty-state (o las filas
+     de archivos) se veían a través del overlay y se superponían con el
+     texto "Soltá acá la carpeta...", quedando ilegibles. Ahora tapa del
+     todo lo que hay debajo y se ve solo el mensaje de drop. */
+  background: color-mix(in srgb, var(--bg-panel) 96%, var(--accent-primary));
   color: var(--accent-primary);
   font-size: 14px;
   font-weight: 600;
+  text-align: center;
+  padding: 0 24px;
   /* No debe robarle los eventos de drag al contenedor que lo dibuja: sin
      esto, cada frame en que el navegador recalcula qué elemento está bajo
      el cursor puede terminar disparando dragEnter/dragLeave sobre el
@@ -2579,6 +2605,32 @@ h1, h2, h3, h4 {
   pointer-events: none;
 }
 
+/* Buscador + filtros (versión de Minecraft, canal) del listado de
+   versiones instalables de un modpack elegido (ver ModpackStep en
+   CreateInstanceModal.jsx) — antes era una lista plana sin forma de
+   acotar, difícil de navegar en modpacks con muchas versiones. */
+.modpack-version-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.modpack-version-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.modpack-version-list { max-height: 320px; }
+.modpack-version-row { text-align: left; }
+.modpack-version-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+
 .modpack-search-dropdown {
   position: absolute;
   top: calc(100% + 6px);
@@ -2838,6 +2890,24 @@ h1, h2, h3, h4 {
   border-color: rgba(248, 113, 113, 0.6);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(248, 113, 113, 0.4),
     0 0 18px -6px rgba(248, 113, 113, 0.65);
+}
+
+/* BUG FIX: tanto .world-card como .world-card-thumb llevan overflow:hidden
+   (esquinas redondeadas y recorte de la miniatura, respectivamente), y el
+   menú de opciones del mundo (.instance-card-menu, ver WorldOptionsMenu)
+   cuelga como descendiente absoluto de .world-card-thumb. Como el menú es
+   más alto que la miniatura, ese overflow:hidden lo recortaba por abajo y
+   el botón "Eliminar" (el último ítem) quedaba invisible o sin poder
+   clickearse. Se libera el overflow en ambos niveles mientras el menú está
+   abierto, y se sube el z-index de la tarjeta para que el menú no quede
+   tapado por la fila de tarjetas siguiente (mismo criterio que el fix
+   análogo de .instance-card más abajo). */
+.world-card:has(.instance-card-menu) {
+  overflow: visible;
+  z-index: 3;
+}
+.world-card-thumb:has(.instance-card-menu) {
+  overflow: visible;
 }
 .world-card-hardcore .world-card-thumb::after {
   content: '';
@@ -4780,6 +4850,16 @@ input:focus, select:focus { outline: none; border-color: var(--accent-primary); 
 .console-line:hover { background: rgba(255, 255, 255, 0.03); }
 .console-line-index { color: #4a4460; user-select: none; flex-shrink: 0; min-width: 32px; text-align: right; }
 .console-line-text { flex: 1; min-width: 0; }
+.console-line-repeat {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-left: 6px;
+}
 
 .console-line.level-error { border-left-color: var(--danger); background: rgba(248, 113, 113, 0.06); }
 .console-line.level-error .console-line-text { color: #ff9d9d; }

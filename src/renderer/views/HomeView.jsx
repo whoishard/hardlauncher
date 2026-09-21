@@ -335,7 +335,7 @@ export default function HomeView() {
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.96 }}
                 >
-                  <Icon name="play" size={15} />
+                  <Icon name="play" size={18} />
                   {t('common.play')}
                 </motion.button>
                 <InstanceOptionsMenu instance={inst} onDeleted={refreshInstances} pushToast={pushToast} inline />

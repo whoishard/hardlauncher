@@ -344,7 +344,12 @@ export default function InstanceDetailView() {
             whileHover={!launching ? { scale: 1.03 } : undefined}
             whileTap={!launching ? { scale: 0.97 } : undefined}
           >
-            {!launching && <Icon name="play" size={15} />}
+            {/* size 26 (antes 22): el ícono de "play" ahora es solo contorno
+                (no relleno), que a igual tamaño pesa menos visualmente, así
+                que se agranda un poco más para que no se vea chico al lado
+                del label en fontSize 15 dentro del botón grande (padding
+                10px 28px) de "Jugar". */}
+            {!launching && <Icon name="play" size={26} />}
             {launching ? t('console.running') : t('common.play')}
           </motion.button>
         </div>
@@ -1607,6 +1612,13 @@ function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
   const [worlds, setWorlds] = useState(null);
   const [settingsWorld, setSettingsWorld] = useState(null);
   const [exportingPath, setExportingPath] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [importing, setImporting] = useState(false);
+  // Mismo motivo que en FilesTab: cuenta enter/leave anidados en vez de un
+  // solo booleano, porque cada hijo del dropzone (tarjetas, íconos) dispara
+  // su propio dragEnter/dragLeave al pasar el cursor por encima sin haber
+  // salido en realidad del contenedor grande.
+  const dragCounter = useRef(0);
 
   function reload() {
     return window.hardLauncher.instances.listWorlds(instanceId).then(setWorlds);
@@ -1683,21 +1695,110 @@ function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
     return finalWorld;
   }
 
+  // Arrastrar y soltar la carpeta o el .zip de un mundo directo sobre
+  // "Mundos", como atajo a copiar/descomprimir a mano dentro de /saves.
+  // Uno por uno (no en paralelo) para no pisarse entre sí al elegir nombre
+  // de carpeta libre si se sueltan varios a la vez con el mismo nombre base.
+  function handleDragEnter(e) {
+    e.preventDefault();
+    if (!e.dataTransfer.types.includes('Files')) return;
+    dragCounter.current += 1;
+    setDragOver(true);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+  }
+
+  function handleDragLeave(e) {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    dragCounter.current = Math.max(0, dragCounter.current - 1);
+    if (dragCounter.current === 0) setDragOver(false);
+  }
+
+  async function handleDrop(e) {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    const filePaths = files.map((f) => f.path).filter(Boolean);
+    if (filePaths.length === 0) return;
+
+    setImporting(true);
+    let importedCount = 0;
+    for (const filePath of filePaths) {
+      try {
+        const world = await window.hardLauncher.instances.importWorld(instanceId, filePath);
+        setWorlds((prev) => [world, ...(prev || [])]);
+        importedCount += 1;
+      } catch (err) {
+        pushToast?.(t('world.toastImportFailed', { error: err.message }), 'error');
+      }
+    }
+    setImporting(false);
+    if (importedCount > 0) {
+      pushToast?.(
+        importedCount === 1 ? t('world.toastImported') : t('world.toastImportedMany', { n: importedCount }),
+        'success'
+      );
+    }
+  }
+
   if (worlds === null) return <p style={{ color: 'var(--text-secondary)' }}>{t('worlds.loading')}</p>;
   if (worlds.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="empty-state-icon">
-          <Icon name="globe" size={64} strokeWidth={1.3} />
+      <div
+        className={'files-dropzone' + (dragOver ? ' drag-over' : '')}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {dragOver && (
+          <div className="files-drop-overlay">
+            <Icon name="upload" size={32} />
+            <span>{t('worlds.dropHint')}</span>
+          </div>
+        )}
+        <div className="empty-state">
+          <div className="empty-state-icon">
+            <Icon name="globe" size={64} strokeWidth={1.3} />
+          </div>
+          <div className="empty-state-title">{t('worlds.emptyTitle')}</div>
+          <div className="empty-state-subtitle">{importing ? t('worlds.importing') : t('worlds.emptySub')}</div>
+
+          {/* Indicador permanente de que se puede arrastrar y soltar acá
+              (antes solo aparecía el aviso MIENTRAS se estaba arrastrando
+              un archivo encima — dragOver — así que si nadie probaba a
+              arrastrar, nunca se enteraba de que la opción existía). Con
+              este recuadro punteado siempre visible, más el mismo texto que
+              ya usa worlds.dropHint, queda claro de entrada sin depender de
+              adivinar. */}
+          {!importing && (
+            <div className="empty-state-drop-hint">
+              <Icon name="upload" size={18} />
+              <span>{t('worlds.dropHint')}</span>
+            </div>
+          )}
         </div>
-        <div className="empty-state-title">{t('worlds.emptyTitle')}</div>
-        <div className="empty-state-subtitle">{t('worlds.emptySub')}</div>
       </div>
     );
   }
 
   return (
-    <>
+    <div
+      className={'files-dropzone' + (dragOver ? ' drag-over' : '')}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragOver && (
+        <div className="files-drop-overlay">
+          <Icon name="upload" size={32} />
+          <span>{t('worlds.dropHint')}</span>
+        </div>
+      )}
       <div className="worlds-grid">
         {worlds.map((w, i) => (
           <WorldCard
@@ -1724,7 +1825,7 @@ function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
           />
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 }
 
@@ -1796,7 +1897,7 @@ function WorldCard({ world, index, exporting, onConfigure, onDuplicate, onExport
                 onPlay();
               }}
             >
-              <Icon name="play" size={14} />
+              <Icon name="play" size={17} />
               {t('world.play')}
             </motion.button>
           </div>

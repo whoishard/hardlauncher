@@ -43,11 +43,19 @@ const CLIENT_ID = '1548438227109679104';
 // Rich Presence siga al logo cuando alguien elige el acento morado.
 const LAUNCHER_ICON_KEY = { red: 'launcher_icon', purple: 'launcher_icon_purple' };
 
-// Botón "Unirse al Discord" que aparece en la Rich Presence (tanto en modo
-// idle como jugando). El RPC local de Discord soporta hasta 2 botones por
-// actividad, cada uno como { label, url }; un solo botón alcanza acá.
+// Botones que aparecen en la Rich Presence (tanto en modo idle como
+// jugando). El RPC local de Discord soporta hasta 2 botones por actividad,
+// cada uno como { label, url } — se usan los dos disponibles: uno al
+// Discord de la comunidad y otro al repositorio del launcher en GitHub.
 const DISCORD_INVITE_URL = 'https://discord.gg/nz7nARPWEC';
-const DISCORD_BUTTON = [{ label: 'Unirse al Discord', url: DISCORD_INVITE_URL }];
+// Repo público en GitHub en vez de la web oficial (todavía sin publicar,
+// ver comentario que tenía este botón antes) — más útil mientras tanto:
+// cualquiera puede entrar a ver el código, reportar un issue, etc.
+const LAUNCHER_WEBSITE_URL = 'https://github.com/whoishard/hardlauncher';
+const DISCORD_BUTTON = [
+  { label: 'Unirse al Discord', url: DISCORD_INVITE_URL },
+  { label: 'Repositorio', url: LAUNCHER_WEBSITE_URL },
+];
 
 const RECONNECT_INTERVAL_MS = 15000;
 

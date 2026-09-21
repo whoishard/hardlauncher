@@ -1213,6 +1213,11 @@ ipcMain.handle('instances:get', (_e, id) => modInstaller.scanInstanceContent(id)
 ipcMain.handle('instances:getSize', (_e, id) => instanceStore.getInstanceSize(id));
 ipcMain.handle('instances:openFolder', (_e, id) => instanceStore.openInstanceFolder(id));
 ipcMain.handle('instances:listWorlds', (_e, id) => instanceStore.listWorlds(id));
+// Arrastrar y soltar una carpeta de mundo o un .zip sobre "Mundos" (ver
+// WorldsTab, InstanceDetailView.jsx): la ruta ya viene resuelta desde el
+// propio evento "drop" del renderer (File.path), así que no hay diálogo
+// nativo que abrir — instanceStore.importWorld hace la extracción/copiado.
+ipcMain.handle('instances:importWorld', (_e, id, sourcePath) => instanceStore.importWorld(id, sourcePath));
 ipcMain.handle('instances:duplicateWorld', (_e, id, worldPath) => instanceStore.duplicateWorld(id, worldPath));
 ipcMain.handle('instances:renameWorld', (_e, id, worldPath, newName) =>
   instanceStore.renameWorld(id, worldPath, newName)
@@ -1542,19 +1547,38 @@ ipcMain.handle('game:launch', async (_e, instanceId, directConnect, quickPlaySin
     onExit: (code) => {
       discordPresence.setIdle();
       mainWindow.webContents.send('game:exit', code);
+
       // .restore() por sí solo puede dejar la ventana "visible" pero sin
       // foco ni al frente en algunos gestores de ventanas (Windows incluido
-      // en ciertos casos), dando la sensación de que "no volvió". show() +
-      // focus() la traen al frente de verdad, no solo le sacan el estado
-      // de minimizada/oculta.
+      // en ciertos casos), dando la sensación de que "no volvió".
       //
-      // isVisible() cubre el caso hide()-a-la-bandeja (ver más abajo) y
-      // isMinimized() el minimize() clásico, por si el usuario lo minimizó
-      // a mano por su cuenta con "Mantener abierto" activado.
+      // Si "Mantener abierto" está desactivado, más abajo (fuera de este
+      // hook) se hizo hide() apenas arrancó el juego — hay que deshacer eso
+      // acá. isVisible() cubre ese caso y también el de que el usuario haya
+      // usado "cerrar a la bandeja" a mano durante la partida; isMinimized()
+      // el minimize() clásico, por si lo minimizó a mano con "Mantener
+      // abierto" sí activado. Si el usuario se mandó a la bandeja a
+      // propósito con "Mantener abierto" activado, se respeta eso.
       if (!settingsStore.getSettings().keepLauncherOpenWhilePlaying &&
           (!mainWindow.isVisible() || mainWindow.isMinimized())) {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.show();
+      }
+
+      // Bug: con "Mantener launcher abierto mientras juego" activado, la
+      // ventana queda VISIBLE (nunca se oculta, ver hide() más abajo) todo
+      // el tiempo que Minecraft tiene el foco/pantalla completa. Chromium
+      // suele dejarla en un estado "visible pero sin responder a input"
+      // después de que otra ventana tuvo foco/exclusividad de pantalla un
+      // buen rato — se ve como si el launcher se hubiera "congelado" (no
+      // reacciona a ningún click) hasta cerrarlo y reabrirlo del todo.
+      // Antes, el show()+focus() de arriba sólo corría cuando la ventana
+      // estaba oculta/minimizada, así que este caso (visible todo el
+      // tiempo) nunca lo disparaba. focus() fuerza a Chromium a
+      // redibujar/re-registrar el foco de verdad y saca a la ventana de
+      // ese estado, así que se llama siempre que la ventana esté visible,
+      // sin importar si "Mantener abierto" está activado o no.
+      if (mainWindow.isVisible()) {
         mainWindow.focus();
       }
     },

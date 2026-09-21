@@ -14,6 +14,40 @@ import polymcLogo from '../assets/launchers/polymc.png';
 import curseforgeLogo from '../assets/launchers/curseforge.webp';
 import modrinthLogo from '../assets/launchers/modrinth.png';
 
+// "1.07M" / "193.2K" / "842": mismo formato compacto de descargas que usa
+// Modrinth, calcado de formatCount() en ProjectDetailView.jsx (no se
+// importa de ahí para no crear una dependencia circular con este archivo,
+// que ProjectDetailView ya importa para modalOverlayMotion/modalCardMotion).
+function formatDownloadCount(n) {
+  const num = n || 0;
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+  if (num >= 1_000) return (num / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(num);
+}
+
+// Fecha relativa compacta ("hace 5d", "hace 3sem"...), calcada de
+// formatRelativeDate() en ProjectDetailView.jsx por el mismo motivo de
+// arriba.
+function formatVersionDate(dateStr) {
+  if (!dateStr) return '';
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const diffDay = Math.floor(diffMs / 86400000);
+  if (diffDay < 1) return 'hoy';
+  if (diffDay < 7) return `hace ${diffDay}d`;
+  if (diffDay < 30) return `hace ${Math.floor(diffDay / 7)}sem`;
+  const diffMonth = Math.floor(diffDay / 30);
+  if (diffMonth === 1) return 'el mes pasado';
+  if (diffMonth < 12) return `hace ${diffMonth}m`;
+  const diffYear = Math.floor(diffDay / 365);
+  return diffYear === 1 ? 'el año pasado' : `hace ${diffYear}a`;
+}
+
+function capitalizeWord(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+const VERSION_CHANNEL_LABEL = { release: 'Release', beta: 'Beta', alpha: 'Alpha' };
+
 // Logo real de cada launcher soportado por el importador (ver
 // launcherDefinitions en src/core/launcherImporter.js — el `id` de cada
 // entrada tiene que coincidir con las claves de acá). Los que no están en
@@ -417,6 +451,20 @@ function ModpackStep({ onClose, onBack, onCreated }) {
   const [popular, setPopular] = useState([]);
   const [loadingPopular, setLoadingPopular] = useState(true);
   const wrapRef = useRef(null);
+  // Modpack elegido de la búsqueda/populares cuyo listado de versiones se
+  // está mostrando para que el usuario elija cuál instalar, en vez de
+  // instalar directo la más nueva (ver handlePickResult más abajo).
+  const [pickedHit, setPickedHit] = useState(null);
+  const [pickedVersions, setPickedVersions] = useState([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  // Buscador + filtros del listado de versiones instalables de un modpack
+  // elegido (ver pickedVersions arriba): antes se mostraban todas apiladas
+  // sin forma de acotar por nombre, versión de Minecraft o canal, y con
+  // modpacks que tienen muchas versiones (ver captura: "Fresh & Smooth")
+  // quedaba desordenado y difícil de encontrar la que se busca.
+  const [versionQuery, setVersionQuery] = useState('');
+  const [versionMcFilter, setVersionMcFilter] = useState('');
+  const [versionChannelFilter, setVersionChannelFilter] = useState([]);
 
   useEffect(() => {
     window.hardLauncher.modrinth
@@ -452,15 +500,40 @@ function ModpackStep({ onClose, onBack, onCreated }) {
     return () => clearTimeout(timer);
   }, [query]);
 
+  // Antes esto instalaba directo la primera versión con .mrpack que
+  // encontraba (la más nueva compatible), sin dejarle al usuario elegir
+  // otra — por ejemplo una versión anterior del modpack, o la misma
+  // release pero para otra versión de Minecraft. Ahora solo trae el
+  // listado de versiones instalables y las muestra (ver pickedHit más
+  // abajo); la instalación en sí queda en handleInstallVersion, recién
+  // cuando el usuario elige una fila concreta.
   async function handlePickResult(hit) {
-    setInstallingId(hit.project_id);
     setError('');
+    setPickedHit(hit);
+    setPickedVersions([]);
+    setVersionQuery('');
+    setVersionMcFilter('');
+    setVersionChannelFilter([]);
+    setLoadingVersions(true);
     try {
       const compatible = await window.hardLauncher.modrinth.versions(hit.project_id, {});
-      const withMrpack = compatible.find((v) => (v.files || []).some((f) => f.filename.toLowerCase().endsWith('.mrpack')));
-      if (!withMrpack) throw new Error(t('create.noInstallableVersion'));
-      const instance = await window.hardLauncher.modrinth.installModpackFromVersion(withMrpack, hit.title);
-      pushToast(t('create.installed', { title: hit.title }), 'success');
+      const withMrpack = compatible.filter((v) => (v.files || []).some((f) => f.filename.toLowerCase().endsWith('.mrpack')));
+      if (!withMrpack.length) throw new Error(t('create.noInstallableVersion'));
+      setPickedVersions(withMrpack);
+    } catch (e) {
+      setError(t('create.installFailed', { error: e.message }));
+      setPickedHit(null);
+    } finally {
+      setLoadingVersions(false);
+    }
+  }
+
+  async function handleInstallVersion(version) {
+    setInstallingId(version.id);
+    setError('');
+    try {
+      const instance = await window.hardLauncher.modrinth.installModpackFromVersion(version, pickedHit.title);
+      pushToast(t('create.installed', { title: pickedHit.title }), 'success');
       onCreated(instance?.id);
     } catch (e) {
       setError(t('create.installFailed', { error: e.message }));
@@ -491,6 +564,159 @@ function ModpackStep({ onClose, onBack, onCreated }) {
   }
 
   const busy = installingId !== null || importingFile;
+
+  // Paso intermedio: ya se eligió el modpack (de la búsqueda o de
+  // populares), pero todavía no la versión — se muestra el listado en vez
+  // de saltar directo al form de búsqueda de arriba.
+  if (pickedHit) {
+    // Opciones para el filtro de versión de Minecraft, en el mismo orden en
+    // que ya vienen (más nueva primero) en vez de reordenarlas alfabético.
+    const allVersionMcOptions = [];
+    for (const v of pickedVersions) {
+      for (const gv of v.game_versions || []) {
+        if (!allVersionMcOptions.includes(gv)) allVersionMcOptions.push(gv);
+      }
+    }
+    const allVersionChannels = [];
+    for (const v of pickedVersions) {
+      const c = v.version_type || 'release';
+      if (!allVersionChannels.includes(c)) allVersionChannels.push(c);
+    }
+
+    const q = versionQuery.trim().toLowerCase();
+    const filteredVersions = pickedVersions.filter((v) => {
+      if (versionMcFilter && !(v.game_versions || []).includes(versionMcFilter)) return false;
+      if (versionChannelFilter.length && !versionChannelFilter.includes(v.version_type || 'release')) return false;
+      if (!q) return true;
+      const haystack = [v.name, v.version_number, ...(v.game_versions || [])].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(q);
+    });
+    const hasActiveVersionFilters = versionMcFilter !== '' || versionChannelFilter.length > 0;
+
+    function toggleVersionChannel(c) {
+      setVersionChannelFilter((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
+    }
+    function clearVersionFilters() {
+      setVersionQuery('');
+      setVersionMcFilter('');
+      setVersionChannelFilter([]);
+    }
+
+    return (
+      <>
+        <ModalHeader title={pickedHit.title} subtitle={t('create.pickVersion')} onClose={onClose} />
+
+        {error && <div className="instance-form-error">{error}</div>}
+
+        {!loadingVersions && pickedVersions.length > 0 && (
+          <div className="modpack-version-filters">
+            <div className="modpack-search-input-wrap">
+              <input
+                style={{ width: '100%' }}
+                placeholder={t('create.searchVersion')}
+                value={versionQuery}
+                onChange={(e) => setVersionQuery(e.target.value)}
+                disabled={installingId !== null}
+              />
+              <Icon name="search" size={14} />
+            </div>
+
+            <div className="modpack-version-filter-row">
+              {allVersionMcOptions.length > 1 && (
+                <Select
+                  value={versionMcFilter}
+                  onChange={setVersionMcFilter}
+                  options={[{ value: '', label: t('create.allGameVersions') }, ...allVersionMcOptions.map((gv) => ({ value: gv, label: gv }))]}
+                  style={{ minWidth: 150 }}
+                />
+              )}
+              {allVersionChannels.length > 1 &&
+                allVersionChannels.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={'chip' + (versionChannelFilter.includes(c) ? ' active' : '')}
+                    onClick={() => toggleVersionChannel(c)}
+                  >
+                    {VERSION_CHANNEL_LABEL[c] || capitalizeWord(c)}
+                  </button>
+                ))}
+              {hasActiveVersionFilters && (
+                <button type="button" className="clear-filters-btn versions-clear-btn" onClick={clearVersionFilters}>
+                  <Icon name="close" size={11} strokeWidth={2.2} />
+                  {t('filter.clear')}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {loadingVersions ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 2px', fontSize: 12.5, color: 'var(--text-muted)' }}>
+            <span className="mini-spinner" />
+            {t('common.loading')}
+          </div>
+        ) : filteredVersions.length === 0 ? (
+          <div className="card" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+            {t('create.noVersionMatch')}
+          </div>
+        ) : (
+          <div className="import-instance-list modpack-version-list">
+            {filteredVersions.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                className="import-instance-row modpack-version-row"
+                onClick={() => handleInstallVersion(v)}
+                disabled={installingId !== null}
+              >
+                <span
+                  className={'version-type-dot type-' + (v.version_type || 'release')}
+                  title={VERSION_CHANNEL_LABEL[v.version_type] || v.version_type}
+                >
+                  {(v.version_type || '?').charAt(0).toUpperCase()}
+                </span>
+
+                <div className="import-instance-row-info">
+                  <div className="import-instance-row-name">{v.name || v.version_number}</div>
+                  <div className="import-instance-row-meta modpack-version-badges">
+                    {(v.game_versions || []).slice(0, 3).map((gv) => (
+                      <span key={gv} className="badge badge-sm">{gv}</span>
+                    ))}
+                    {(v.game_versions || []).length > 3 && (
+                      <span className="badge badge-sm">+{v.game_versions.length - 3}</span>
+                    )}
+                    {(v.loaders || []).map((l) => (
+                      <span key={l} className="badge badge-sm badge-loader">{capitalizeWord(l)}</span>
+                    ))}
+                  </div>
+                </div>
+
+                <span className="version-date">{formatVersionDate(v.date_published)}</span>
+                {v.downloads != null && <span className="version-downloads">{formatDownloadCount(v.downloads)}</span>}
+
+                {installingId === v.id && <span className="mini-spinner" />}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ marginTop: 16 }}>
+          <button
+            className="btn-secondary btn-icon-label"
+            onClick={() => {
+              setPickedHit(null);
+              setError('');
+            }}
+            disabled={installingId !== null}
+          >
+            <Icon name="arrowLeft" size={14} />
+            {t('common.back')}
+          </button>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

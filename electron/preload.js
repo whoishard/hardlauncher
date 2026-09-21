@@ -147,6 +147,7 @@ contextBridge.exposeInMainWorld('hardLauncher', {
     getSize: (id) => ipcRenderer.invoke('instances:getSize', id),
     openFolder: (id) => ipcRenderer.invoke('instances:openFolder', id),
     listWorlds: (id) => ipcRenderer.invoke('instances:listWorlds', id),
+    importWorld: (id, sourcePath) => ipcRenderer.invoke('instances:importWorld', id, sourcePath),
     duplicateWorld: (id, worldPath) => ipcRenderer.invoke('instances:duplicateWorld', id, worldPath),
     renameWorld: (id, worldPath, newName) => ipcRenderer.invoke('instances:renameWorld', id, worldPath, newName),
     updateWorldSettings: (id, worldPath, changes) =>
