@@ -49,6 +49,7 @@ export default function InstanceDetailView() {
     setRunningInstance,
     clearRunningInstance,
     refreshInstances,
+    touchInstanceLastPlayed,
   } = useAppStore();
   const [instance, setInstance] = useState(null);
   const [tab, setTab] = useState('content');
@@ -107,6 +108,17 @@ export default function InstanceDetailView() {
       setProgress(null);
       setLastExitCode(code);
       setWorldsRefreshSignal((n) => n + 1);
+      // BUG FIX: launcher.js ya actualiza lastPlayed/totalPlaytime en disco
+      // apenas el proceso del juego cierra, pero acá nunca se avisaba al
+      // store global (useAppStore) para que vuelva a pedir la lista de
+      // instancias. Esta vista sí quedaba con los datos viejos hasta que se
+      // llamaba reload() por otro motivo (cambiar de instancia, tocar
+      // contenido, etc.) — y como "continuar donde quedaste" en Inicio
+      // ordena por lastPlayed usando ese store global, una instancia recién
+      // jugada no le ganaba a la que estaba arriba antes hasta cerrar y
+      // reabrir el launcher. Con este refreshInstances() el orden se
+      // actualiza apenas volvés del juego.
+      refreshInstances();
     });
     return () => {
       unsubLog();
@@ -173,6 +185,11 @@ export default function InstanceDetailView() {
     clearLogs();
     setTab('console');
     setRunningInstance({ id, name: instance.name });
+    // Actualiza "Continuar donde quedaste" al instante, apenas se toca
+    // "Jugar" — sin esto había que esperar a que el juego terminara de
+    // abrir (o de cerrarse) para ver la instancia recién jugada arriba de
+    // la lista. Ver touchInstanceLastPlayed en store.js.
+    touchInstanceLastPlayed(id);
     try {
       await window.hardLauncher.game.launch(id, directConnect, quickPlaySingleplayer);
     } catch (e) {

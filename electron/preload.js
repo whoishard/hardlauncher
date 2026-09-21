@@ -156,6 +156,7 @@ contextBridge.exposeInMainWorld('hardLauncher', {
     openWorldFolder: (id, worldPath) => ipcRenderer.invoke('instances:openWorldFolder', id, worldPath),
     exportWorldForServer: (id, worldPath, worldName) =>
       ipcRenderer.invoke('instances:exportWorldForServer', id, worldPath, worldName),
+    importPackage: () => ipcRenderer.invoke('instances:importPackage'),
     listScreenshots: (id) => ipcRenderer.invoke('instances:listScreenshots', id),
     deleteScreenshot: (id, filePath) => ipcRenderer.invoke('instances:deleteScreenshot', id, filePath),
     showScreenshotInFolder: (id, filePath) => ipcRenderer.invoke('instances:showScreenshotInFolder', id, filePath),

@@ -209,7 +209,9 @@ export default function HomeView() {
                     {favoriteInstance && (favoriteInstance.totalPlaytime || 0) > 0 && (
                       <span className="home-hero-summary-detail" title={favoriteInstance.name}>
                         <Icon name="flame" size={12} />
-                        {t('home.favorite')}: {favoriteInstance.name}
+                        <span className="home-hero-summary-detail-text">
+                          {t('home.favorite')}: {favoriteInstance.name}
+                        </span>
                       </span>
                     )}
                   </div>

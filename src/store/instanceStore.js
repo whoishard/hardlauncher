@@ -603,6 +603,60 @@ function exportWorldForServer(instanceId, worldPath, destZipPath) {
   return { path: destZipPath, size };
 }
 
+// Nombre del archivo de manifiesto en la raíz de un paquete .hlpack (ver
+// importInstancePackage más abajo).
+const PACKAGE_MANIFEST_NAME = 'hardlauncher-instance.json';
+
+/**
+ * Importa un .hlpack: crea una instancia nueva a
+ * partir del manifiesto que trae adentro (nombre, ícono, versión, loader) y
+ * vuelca todo lo que estaba bajo "overrides/" en la carpeta de esa
+ * instancia nueva — mismo mecanismo de origen/destino que duplicateInstance
+ * de más arriba, pero leyendo de un .zip en vez de copiar otra carpeta ya
+ * en disco. Reusa createInstance a propósito: así la instancia importada
+ * arranca con los mismos valores por defecto (memoria, JVM args, hooks) que
+ * cualquier instancia creada a mano en ESTA PC, en vez de heredar los de la
+ * máquina de quien la exportó.
+ */
+function importInstancePackage(zipPath) {
+  const zip = new AdmZip(zipPath);
+  const manifestEntry = zip.getEntry(PACKAGE_MANIFEST_NAME);
+  if (!manifestEntry) {
+    throw new Error('Este archivo no es un paquete de instancia válido de Hard Launcher.');
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(zip.readAsText(manifestEntry));
+  } catch {
+    throw new Error('El manifiesto del paquete está dañado o corrupto.');
+  }
+  if (!manifest.mcVersion) {
+    throw new Error('El paquete no indica ninguna versión de Minecraft.');
+  }
+
+  const instance = createInstance({
+    name: manifest.name || 'Instancia importada',
+    icon: manifest.icon || null,
+    mcVersion: manifest.mcVersion,
+    versionType: manifest.versionType,
+    loader: manifest.loader,
+    loaderVersion: manifest.loaderVersion,
+  });
+
+  const prefix = 'overrides/';
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory || !entry.entryName.startsWith(prefix)) continue;
+    const relative = entry.entryName.slice(prefix.length);
+    if (!relative) continue;
+    const destPath = path.join(instance.dir, relative);
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    fs.writeFileSync(destPath, entry.getData());
+  }
+
+  return instance;
+}
+
 /** Lista las capturas de pantalla (carpeta /screenshots) de una instancia. */
 function listScreenshots(id) {
   const instance = getInstance(id);
@@ -881,6 +935,7 @@ module.exports = {
   deleteWorld,
   openWorldFolder,
   exportWorldForServer,
+  importInstancePackage,
   listScreenshots,
   deleteScreenshot,
   showScreenshotInFolder,

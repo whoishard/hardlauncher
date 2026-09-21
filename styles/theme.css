@@ -3648,6 +3648,19 @@ h1, h2, h3, h4 {
   margin-top: 1px;
 }
 
+/* Envoltorio de navegación DENTRO de .instance-card (ver InstanceCard en
+   InstancesView.jsx): display:contents hace que este <Link> no genere caja
+   propia, así el ícono/nombre/stats de adentro siguen respetando el
+   flex-column de .instance-card como si el <Link> ni estuviera — nada más
+   se necesita para que sea "invisible" en el layout mientras el menú ⋯
+   (ver más abajo) queda afuera de este enlace y nunca dispara navegación. */
+.instance-card-link {
+  display: contents;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
 /* --- Menú de opciones (⋯) sobre las tarjetas de instancia --- */
 .instance-card-menu-wrap {
   position: absolute;
@@ -5871,15 +5884,29 @@ input:focus, select:focus { outline: none; border-color: var(--accent-primary); 
   flex: 1 1 auto;
   min-width: 0;
 }
+/* BUG FIX: el texto de "Favorita: <nombre>" quedaba cortado a la mitad de
+   una palabra en vez de mostrar "..." al final. El nowrap/ellipsis estaba
+   puesto directo en .home-hero-summary-detail, que es el contenedor flex
+   (ícono + texto) — pero text-overflow:ellipsis no funciona bien quieto
+   sobre un contenedor flex con varios hijos (el ícono SVG cuenta como ítem
+   flex aparte), así que el texto simplemente se recortaba en seco donde
+   fuera que se quedara sin espacio. Ahora el nowrap/overflow/ellipsis vive
+   en un <span> propio solo para el texto (.home-hero-summary-detail-text,
+   con min-width:0 para poder encogerse dentro del flex), y el ícono queda
+   como ítem de tamaño fijo al lado. */
 .home-hero-summary-detail {
   display: flex;
   align-items: center;
   gap: 7px;
   font-size: 12.5px;
   color: var(--text-muted);
-  white-space: nowrap;
+  min-width: 0;
+}
+.home-hero-summary-detail-text {
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 .home-hero-summary-detail svg { flex-shrink: 0; color: var(--accent-primary); opacity: 0.85; }
 

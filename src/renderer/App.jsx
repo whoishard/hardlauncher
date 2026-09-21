@@ -53,8 +53,22 @@ export default function App() {
   // abierto, el listener de esa vista se desmonta y nunca se entera de que
   // terminó. El indicador global de la barra de título necesita saberlo
   // pase lo que pase, así que escucha acá arriba, en el componente raíz.
+  //
+  // BUG FIX ("continuar donde quedaste" no se actualizaba): refreshInstances()
+  // vivía solo en el onExit de InstanceDetailView, así que si el jugador
+  // volvía a Inicio (u otra pantalla) mientras la partida seguía abierta —
+  // algo normal, no hace falta quedarse mirando la consola — esa vista se
+  // desmontaba, se daba de baja su listener, y cuando el juego finalmente
+  // cerraba nadie avisaba al store global. lastPlayed quedaba bien
+  // actualizado en disco (ver launcher.js) pero Inicio seguía mostrando el
+  // orden viejo hasta cerrar y reabrir el launcher. Moviendo el refresh acá
+  // (que sí sigue vivo pase lo que pase, mismo motivo que clearRunningInstance
+  // arriba) se actualiza siempre, sin importar en qué pantalla se esté.
   useEffect(() => {
-    const unsub = window.hardLauncher.game.onExit(() => clearRunningInstance());
+    const unsub = window.hardLauncher.game.onExit(() => {
+      clearRunningInstance();
+      refreshInstances();
+    });
     return unsub;
   }, []);
 

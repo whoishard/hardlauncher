@@ -85,6 +85,23 @@ export const useAppStore = create((set, get) => ({
     set({ instances });
   },
 
+  // Actualización optimista del "lastPlayed" de una instancia, en memoria,
+  // sin esperar respuesta del proceso principal. Se usa apenas se toca
+  // "Jugar" (ver InstanceDetailView.handleLaunch): el lanzamiento real
+  // (descargar la versión si falta, preparar Java, etc.) puede tardar unos
+  // segundos, y recién ahí es que el proceso principal termina de escribir
+  // lastPlayed en disco — sin esto, "Continuar donde quedaste" tardaba ese
+  // mismo rato en reordenarse en vez de reflejar al toque que se acaba de
+  // abrir esa instancia. El valor real (con el timestamp exacto que también
+  // quedó guardado en disco) se vuelve a traer de todos modos cuando el
+  // juego cierra (ver el onExit de App.jsx), así que un pequeño desfase acá
+  // no importa.
+  touchInstanceLastPlayed(id) {
+    set((state) => ({
+      instances: state.instances.map((i) => (i.id === id ? { ...i, lastPlayed: Date.now() } : i)),
+    }));
+  },
+
   // Reordenamiento optimista (arrastrar íconos en Sidebar.jsx): se reordena
   // en memoria al instante, con el mismo criterio que usa el proceso
   // principal (instanceStore.reorderInstances), para que la barra lateral

@@ -17,13 +17,6 @@ const staggerItem = {
   show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] } },
 };
 
-// Link no es un motion component; se envuelve así (en vez de meterlo dentro
-// de un <motion.div>) para que siga siendo EL elemento del grid — con un
-// wrapper extra, el grid le aplicaría el tamaño de celda al div y el Link
-// de adentro necesitaría 100% width/height para heredarlo, y no vale la
-// pena tocar el CSS del grid solo por esto.
-const MotionLink = motion(Link);
-
 function formatBytes(bytes) {
   if (!bytes) return '0 MB';
   const mb = bytes / (1024 * 1024);
@@ -53,54 +46,87 @@ function InstanceCard({ inst, onDeleted, pushToast }) {
   const accent = LOADER_BADGES[inst.loader]?.color || 'var(--accent-primary)';
 
   return (
-    <MotionLink
-      to={`/instances/${inst.id}`}
+    // BUG FIX: antes, TODA la tarjeta (ícono, nombre, stats y el menú de
+    // opciones ⋯) era un único <Link>/<a> a "/instances/:id" — incluyendo
+    // el propio InstanceOptionsMenu y su modal de "Exportar". Al estar
+    // anidado adentro de un enlace, un click en "Exportar" (o "Config.",
+    // "Eliminar", etc.) terminaba navegando a la instancia en vez de abrir
+    // el modal correspondiente: el stopPropagation() de InstanceOptionsMenu
+    // no alcanza a frenar la navegación del <Link>/MotionLink en todos los
+    // casos. La solución es sacar el menú de adentro del <Link> del todo:
+    // ahora ".instance-card" es el contenedor (posicionado, para que el
+    // menú ⋯ absolute siga cayendo en la esquina igual que antes) y el
+    // <Link> de navegación es un elemento hermano que solo envuelve el
+    // ícono/nombre/stats — el menú de opciones queda afuera de cualquier
+    // enlace, así sus clicks nunca navegan.
+    <motion.div
       className="card instance-card"
       style={{ '--instance-accent': accent }}
       variants={staggerItem}
       whileHover={{ y: -3, transition: { duration: 0.15 } }}
-      // BUG FIX: al hacer click y mover apenas el mouse antes de soltar
-      // (algo muy fácil de que pase sin querer), el navegador interpretaba
-      // esto como el inicio de un drag-and-drop nativo de enlace — mostraba
-      // el "fantasma" gris con el título y la URL completa de la instancia
-      // pegado al cursor, como si se pudiera soltar en algún lado. No hay
-      // ningún lugar de esta app donde soltar una tarjeta de instancia
-      // tenga sentido, así que se desactiva el drag nativo del todo en vez
-      // de dejar que el navegador lo ofrezca.
-      draggable={false}
-      onDragStart={(e) => e.preventDefault()}
     >
       <InstanceOptionsMenu instance={inst} onDeleted={onDeleted} pushToast={pushToast} />
-      <div className="instance-card-icon-frame">
-        <InstanceIcon name={inst.name} loader={inst.loader} icon={inst.icon} size={64} />
-      </div>
-      <div className="instance-card-name">{inst.name}</div>
-      <span className="badge badge-sm instance-card-version">
-        {inst.mcVersion} · {inst.loader}
-      </span>
+      <Link
+        to={`/instances/${inst.id}`}
+        className="instance-card-link"
+        // BUG FIX (ver comentario original más abajo, se mantiene igual):
+        // al hacer click y mover apenas el mouse antes de soltar, el
+        // navegador interpretaba esto como el inicio de un drag-and-drop
+        // nativo de enlace — mostraba el "fantasma" gris con el título y
+        // la URL completa de la instancia pegado al cursor. Se desactiva
+        // el drag nativo del todo en vez de dejar que el navegador lo
+        // ofrezca.
+        draggable={false}
+        onDragStart={(e) => e.preventDefault()}
+      >
+        <div className="instance-card-icon-frame">
+          <InstanceIcon name={inst.name} loader={inst.loader} icon={inst.icon} size={64} />
+        </div>
+        <div className="instance-card-name">{inst.name}</div>
+        <span className="badge badge-sm instance-card-version">
+          {inst.mcVersion} · {inst.loader}
+        </span>
 
-      <div className="instance-card-stats">
-        <span className="instance-card-stat" title={t('instances.playtime')}>
-          <Icon name="clock" size={12} />
-          {formatPlaytimePlayed(inst.totalPlaytime, t.lang)}
-        </span>
-        <span className="instance-card-stat" title={t('instances.content')}>
-          <Icon name="package" size={12} />
-          {inst.content.length} {inst.content.length === 1 ? t('instances.contentOne') : t('instances.contentMany')}
-        </span>
-        <span className="instance-card-stat" title={t('instances.disk')}>
-          <Icon name="database" size={12} />
-          {sizeBytes === null ? t('instances.calculating') : formatBytes(sizeBytes)}
-        </span>
-      </div>
-    </MotionLink>
+        <div className="instance-card-stats">
+          <span className="instance-card-stat" title={t('instances.playtime')}>
+            <Icon name="clock" size={12} />
+            {formatPlaytimePlayed(inst.totalPlaytime, t.lang)}
+          </span>
+          <span className="instance-card-stat" title={t('instances.content')}>
+            <Icon name="package" size={12} />
+            {inst.content.length} {inst.content.length === 1 ? t('instances.contentOne') : t('instances.contentMany')}
+          </span>
+          <span className="instance-card-stat" title={t('instances.disk')}>
+            <Icon name="database" size={12} />
+            {sizeBytes === null ? t('instances.calculating') : formatBytes(sizeBytes)}
+          </span>
+        </div>
+      </Link>
+    </motion.div>
   );
 }
 
 export default function InstancesView() {
   const { instances, refreshInstances, pushToast } = useAppStore();
   const [showCreate, setShowCreate] = useState(false);
+  const [importing, setImporting] = useState(false);
   const t = useT();
+
+  async function handleImport() {
+    setImporting(true);
+    try {
+      const instance = await window.hardLauncher.instances.importPackage();
+      // null = el jugador canceló el diálogo de "abrir archivo", no es un error.
+      if (instance) {
+        await refreshInstances();
+        pushToast(t('instances.importSuccess', { name: instance.name }), 'success');
+      }
+    } catch (e) {
+      pushToast(t('instances.importFailed', { error: e.message }), 'error');
+    } finally {
+      setImporting(false);
+    }
+  }
 
   return (
     <div>
@@ -116,14 +142,26 @@ export default function InstancesView() {
             {instances.length} {instances.length === 1 ? t('instances.countOne') : t('instances.countMany')}
           </span>
         </div>
-        <motion.button
-          className="btn-primary"
-          onClick={() => setShowCreate(true)}
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
-        >
-          {t('instances.create')}
-        </motion.button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <motion.button
+            className="btn-secondary btn-icon-label"
+            onClick={handleImport}
+            disabled={importing}
+            whileHover={!importing ? { scale: 1.03 } : undefined}
+            whileTap={!importing ? { scale: 0.97 } : undefined}
+          >
+            <Icon name="arrowDown" size={14} />
+            {importing ? t('instances.importing') : t('instances.import')}
+          </motion.button>
+          <motion.button
+            className="btn-primary"
+            onClick={() => setShowCreate(true)}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+          >
+            {t('instances.create')}
+          </motion.button>
+        </div>
       </motion.div>
 
       <motion.div className="grid-instances" variants={staggerContainer} initial="hidden" animate="show">

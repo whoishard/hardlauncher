@@ -127,6 +127,10 @@ export const translations = {
     'instances.deleteBody': 'Se borrará toda su carpeta del disco. No se puede deshacer.',
     'instances.deleting': 'Eliminando...',
     'instances.confirmDelete': 'Sí, eliminar',
+    'instances.import': 'Importar instancia',
+    'instances.importing': 'Importando instancia...',
+    'instances.importSuccess': '"{name}" se importó correctamente.',
+    'instances.importFailed': 'No se pudo importar el paquete: {error}',
 
     'content.search': 'Buscar entre {n} elementos...',
     'content.refresh': 'Refrescar',
@@ -818,6 +822,10 @@ export const translations = {
     'instances.deleteBody': 'Its entire folder will be removed from disk. This cannot be undone.',
     'instances.deleting': 'Deleting...',
     'instances.confirmDelete': 'Yes, delete',
+    'instances.import': 'Import instance',
+    'instances.importing': 'Importing instance...',
+    'instances.importSuccess': '"{name}" was imported successfully.',
+    'instances.importFailed': 'Could not import the package: {error}',
 
     'content.search': 'Search {n} items...',
     'content.refresh': 'Refresh',
@@ -1512,6 +1520,10 @@ export const translations = {
     'instances.deleteBody': 'A pasta inteira será apagada do disco. Isso não pode ser desfeito.',
     'instances.deleting': 'Excluindo...',
     'instances.confirmDelete': 'Sim, excluir',
+    'instances.import': 'Importar instância',
+    'instances.importing': 'Importando instância...',
+    'instances.importSuccess': '"{name}" foi importada com sucesso.',
+    'instances.importFailed': 'Não foi possível importar o pacote: {error}',
 
     'content.search': 'Buscar entre {n} itens...',
     'content.refresh': 'Atualizar',

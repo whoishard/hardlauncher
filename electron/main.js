@@ -1241,6 +1241,18 @@ ipcMain.handle('instances:exportWorldForServer', async (_e, id, worldPath, world
   if (result.canceled || !result.filePath) return null;
   return instanceStore.exportWorldForServer(id, worldPath, result.filePath);
 });
+// Importar una instancia completa desde un .hlpack que alguien más exportó
+// (ver instanceStore.importInstancePackage). El diálogo nativo vive acá por
+// la misma razón que el de arriba.
+ipcMain.handle('instances:importPackage', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Importar instancia',
+    properties: ['openFile'],
+    filters: [{ name: 'Paquete de Hard Launcher', extensions: ['hlpack', 'zip'] }],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  return instanceStore.importInstancePackage(result.filePaths[0]);
+});
 ipcMain.handle('instances:listScreenshots', (_e, id) => instanceStore.listScreenshots(id));
 ipcMain.handle('instances:deleteScreenshot', (_e, id, filePath) => instanceStore.deleteScreenshot(id, filePath));
 ipcMain.handle('instances:showScreenshotInFolder', (_e, id, filePath) =>
@@ -1495,6 +1507,15 @@ ipcMain.handle('game:launch', async (_e, instanceId, directConnect, quickPlaySin
   const instance = instanceStore.getInstance(instanceId);
   let account = accountManager.getActiveAccount();
   if (!account) throw new Error('No hay ninguna cuenta activa seleccionada.');
+
+  // Se marca "jugada" apenas se pide el lanzamiento, no recién cuando el
+  // proceso del juego cierra (eso ya lo hace, aparte, core/launcher.js al
+  // terminar): así, si algo más dispara un refreshInstances() de por medio
+  // mientras el juego todavía está abriéndose (descargando la versión,
+  // preparando Java, etc. — puede tardar), el timestamp guardado en disco
+  // ya es el correcto y no pisa la actualización optimista que hace el
+  // renderer al tocar "Jugar" (ver touchInstanceLastPlayed en store.js).
+  instanceStore.updateInstance(instanceId, { lastPlayed: Date.now() });
 
   // BUG FIX ("pide iniciar sesión con Microsoft cada tanto y no deja jugar
   // en servidores"): el accessToken de una cuenta premium vence a las 24hs,
