@@ -66,42 +66,107 @@ function getInstance(id) {
   return listInstances().find((i) => i.id === id) || null;
 }
 
-/** Calcula el tamaño en disco (bytes) de cualquier carpeta, recorriéndola
- * entera. Compartido por getInstanceSize (carpeta de la instancia) y las
- * funciones de mundos de abajo (carpeta de un mundo puntual dentro de
- * /saves). Mismo algoritmo que storageInfo.folderSize, pero vive acá para no
- * crear una dependencia circular (storageInfo ya depende de instanceStore). */
-function getFolderSize(dir) {
-  if (!fs.existsSync(dir)) return 0;
+/**
+ * Calcula el tamaño en disco (bytes) de cualquier carpeta, recorriéndola
+ * entera. Compartido por getInstanceSize (carpeta de la instancia, que
+ * puede tener varios GB entre libraries/assets/mods) y las funciones de
+ * mundos de abajo (carpeta de un mundo puntual dentro de /saves).
+ *
+ * PERF FIX: la versión anterior usaba fs.readdirSync/statSync — 100%
+ * síncrono — recorriendo la carpeta entera de un tirón. El proceso
+ * principal de Electron es de un solo hilo de JS y ES COMPARTIDO por TODA
+ * la app: mientras ese recorrido corría (varios segundos en una instancia
+ * grande, y peor todavía con varias instancias mostrándose a la vez en
+ * "Instancias", cada una disparando su propio getInstanceSize apenas
+ * monta su tarjeta), ningún otro ipcMain.handle podía avanzar — ni
+ * siquiera los que no tienen nada que ver con esto, como terminar de
+ * resolver una búsqueda de Modrinth que ya había vuelto de la red y solo
+ * esperaba su turno en el mismo hilo para que el .then() corriera. Eso es
+ * lo que se sentía como "el Explorador tarda mucho / se traba al cambiar
+ * de pestaña": no era un bug del Explorador en sí, era el proceso
+ * principal entero congelado por este recorrido de disco.
+ *
+ * La solución real es no bloquear ese hilo por tanto tiempo seguido:
+ *  1) fs.promises en vez de las versiones *Sync, para no atar el hilo de
+ *     JS mientras el kernel resuelve cada operación de disco.
+ *  2) Además, se cede el control explícitamente (setImmediate) cada
+ *     cierta cantidad de entradas procesadas — sin esto, un directorio
+ *     con miles de archivos (el propio /libraries de una instancia,
+ *     región por región de un mundo grande) igual podría acaparar el
+ *     hilo entre awaits si todas las entradas de una carpeta se procesan
+ *     en el mismo tick.
+ *  3) Caché con TTL corto + deduplicación de pedidos en vuelo (mismo
+ *     patrón que src/api/modrinthApi.js): navegar de ida y vuelta entre
+ *     "Instancias" y otra pantalla, o abrir/cerrar la pestaña de Mundos
+ *     varias veces seguidas, no dispara un recorrido de disco nuevo cada
+ *     vez si el anterior es reciente.
+ */
+const FOLDER_SIZE_CACHE_TTL_MS = 15000;
+const folderSizeCache = new Map(); // dir -> { size, at }
+const folderSizeInFlight = new Map(); // dir -> Promise en vuelo
+
+const YIELD_EVERY_ENTRIES = 200;
+function yieldToEventLoop() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+async function computeFolderSizeUncached(dir) {
   let total = 0;
+  let processed = 0;
   const stack = [dir];
   while (stack.length) {
     const current = stack.pop();
     let entries;
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = await fs.promises.readdir(current, { withFileTypes: true });
     } catch {
       continue;
     }
     for (const entry of entries) {
       const full = path.join(current, entry.name);
-      if (entry.isDirectory()) stack.push(full);
-      else {
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else {
         try {
-          total += fs.statSync(full).size;
+          const stat = await fs.promises.stat(full);
+          total += stat.size;
         } catch {
           /* archivo removido entre el listado y el stat, se ignora */
         }
       }
+      processed += 1;
+      if (processed % YIELD_EVERY_ENTRIES === 0) await yieldToEventLoop();
     }
   }
   return total;
 }
 
-function getInstanceSize(id) {
+/** Versión con caché+deduplicación de computeFolderSizeUncached — usar esta
+ * en vez de la de arriba en cualquier código nuevo. */
+async function getFolderSizeAsync(dir) {
+  if (!fs.existsSync(dir)) return 0;
+  const cached = folderSizeCache.get(dir);
+  if (cached && Date.now() - cached.at < FOLDER_SIZE_CACHE_TTL_MS) return cached.size;
+  if (folderSizeInFlight.has(dir)) return folderSizeInFlight.get(dir);
+
+  const p = computeFolderSizeUncached(dir)
+    .then((size) => {
+      folderSizeCache.set(dir, { size, at: Date.now() });
+      folderSizeInFlight.delete(dir);
+      return size;
+    })
+    .catch((e) => {
+      folderSizeInFlight.delete(dir);
+      throw e;
+    });
+  folderSizeInFlight.set(dir, p);
+  return p;
+}
+
+async function getInstanceSize(id) {
   const instance = getInstance(id);
   if (!instance) return 0;
-  return getFolderSize(instance.dir);
+  return getFolderSizeAsync(instance.dir);
 }
 
 /**
@@ -321,7 +386,13 @@ function getSavesDir(instance) {
  * con su propio try/catch: un mundo con esos archivos rotos o ausentes
  * igual aparece en la lista, solo que con menos detalle.
  */
-function buildWorldEntry(instance, worldDir, folderName) {
+// PERF FIX: buildWorldEntry es async porque el peso en disco de un mundo
+// (getFolderSizeAsync) puede implicar recorrer región por región un mundo
+// grande — ver el comentario largo junto a getFolderSizeAsync más arriba
+// sobre por qué eso NO puede hacerse síncrono en el proceso principal.
+// El resto de esta función (icon.png, level.dat) son lecturas puntuales de
+// un solo archivo chico, no hace falta tocarlas.
+async function buildWorldEntry(instance, worldDir, folderName) {
   const worldPath = path.join(worldDir, folderName);
   const stat = fs.statSync(worldPath);
 
@@ -350,7 +421,7 @@ function buildWorldEntry(instance, worldDir, folderName) {
     displayName: (info && info.levelName) || folderName,
     path: worldPath,
     lastModified: stat.mtimeMs,
-    size: getFolderSize(worldPath),
+    size: await getFolderSizeAsync(worldPath),
     icon,
     hasNether: fs.existsSync(path.join(worldPath, 'DIM-1')),
     hasEnd: fs.existsSync(path.join(worldPath, 'DIM1')),
@@ -359,17 +430,37 @@ function buildWorldEntry(instance, worldDir, folderName) {
 }
 
 /** Lista los mundos guardados (carpeta /saves) de una instancia, con
- * miniatura, peso y detalle de cada uno (ver buildWorldEntry). */
-function listWorlds(id) {
+ * miniatura, peso y detalle de cada uno (ver buildWorldEntry).
+ *
+ * La lectura de level.dat/icon.png de cada mundo (buildWorldEntry) siempre
+ * se hace fresca, directo de disco, cada vez que se llama a esta función
+ * — no hay ningún caché de por medio para "info" (hardcore, dificultad,
+ * modo de juego, nombre): así, apenas se vuelve a esta pantalla después de
+ * jugar, lo que se muestra es exactamente lo que hay en el level.dat en
+ * ESE momento (por ejemplo, un mundo hardcore recién creado adentro del
+ * juego). Ver también WorldsTab (InstanceDetailView.jsx) por los distintos
+ * disparadores que llaman a esto: al montar, al cerrarse el juego, al
+ * volver a enfocar la ventana del launcher, y con un botón de refrescar
+ * manual — para no depender de un solo evento que se podría perder (ej. si
+ * el proceso del juego termina de una forma que el launcher no llega a
+ * detectar como "salida normal").
+ */
+async function listWorlds(id) {
   const instance = getInstance(id);
   if (!instance) throw new Error('Instancia no encontrada.');
   const savesDir = getSavesDir(instance);
   if (!fs.existsSync(savesDir)) return [];
-  return fs
-    .readdirSync(savesDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => buildWorldEntry(instance, savesDir, e.name))
-    .sort((a, b) => b.lastModified - a.lastModified);
+  const folders = fs.readdirSync(savesDir, { withFileTypes: true }).filter((e) => e.isDirectory());
+  // Secuencial (no Promise.all) a propósito: varios mundos grandes a la vez
+  // sumarían sus recorridos de disco en simultáneo por poco beneficio real
+  // (el disco ya es el cuello de botella), y esto deja que el "yield"
+  // periódico de getFolderSizeAsync realmente le dé aire al resto de la app
+  // entre mundo y mundo en vez de competir todos por el mismo hilo a la vez.
+  const worlds = [];
+  for (const folder of folders) {
+    worlds.push(await buildWorldEntry(instance, savesDir, folder.name));
+  }
+  return worlds.sort((a, b) => b.lastModified - a.lastModified);
 }
 
 /**
@@ -415,7 +506,7 @@ function freeWorldFolderName(savesDir, baseName) {
  * InstanceDetailView.jsx) y deja el mundo ya listo para jugar en /saves,
  * sin que el jugador tenga que descomprimir nada a mano.
  */
-function importWorld(instanceId, sourcePath) {
+async function importWorld(instanceId, sourcePath) {
   const instance = getInstance(instanceId);
   if (!instance) throw new Error('Instancia no encontrada.');
   const savesDir = getSavesDir(instance);
@@ -477,7 +568,7 @@ function importWorld(instanceId, sourcePath) {
  * si los tiene) con un nombre nuevo, y también actualiza el "LevelName" de
  * su copia del level.dat para que el juego muestre el nombre nuevo en el
  * menú "Un jugador" en vez de seguir mostrando el del original. */
-function duplicateWorld(instanceId, worldPath) {
+async function duplicateWorld(instanceId, worldPath) {
   const { savesDir, folderName, worldPath: resolved } = resolveWorld(instanceId, worldPath);
   const newFolderName = freeWorldFolderName(savesDir, `${folderName} (copia)`);
   const newWorldPath = path.join(savesDir, newFolderName);
@@ -500,7 +591,7 @@ function duplicateWorld(instanceId, worldPath) {
 
 /** Renombra un mundo: carpeta en disco + el "LevelName" dentro de su
  * level.dat, para que el nombre nuevo se vea también dentro del juego. */
-function renameWorld(instanceId, worldPath, newName) {
+async function renameWorld(instanceId, worldPath, newName) {
   const trimmed = (newName || '').trim();
   if (!trimmed) throw new Error('El nombre no puede estar vacío.');
   // Los caracteres de abajo no son válidos en nombres de carpeta en
@@ -532,7 +623,7 @@ function renameWorld(instanceId, worldPath, newName) {
 
 /** Aplica cambios de configuración (modo de juego, dificultad, hardcore,
  * trucos/cheats) al level.dat de un mundo. */
-function updateWorldSettings(instanceId, worldPath, changes) {
+async function updateWorldSettings(instanceId, worldPath, changes) {
   const { savesDir, folderName, worldPath: resolved } = resolveWorld(instanceId, worldPath);
   const levelDatPath = path.join(resolved, 'level.dat');
   if (!fs.existsSync(levelDatPath)) {

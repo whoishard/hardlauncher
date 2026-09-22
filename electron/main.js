@@ -605,6 +605,19 @@ function createWindow() {
   mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximizedChanged', true));
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximizedChanged', false));
 
+  // Avisa al renderer cada vez que la ventana del launcher vuelve a tener
+  // foco (ej. el jugador alt-tabea de vuelta después de jugar, o vuelve de
+  // la bandeja). Se usa como red de seguridad en la pestaña Mundos
+  // (WorldsTab, ver InstanceDetailView.jsx): el refresco automático normal
+  // pasa por game:exit, pero si el proceso del juego termina de una forma
+  // que ese listener no llega a capturar (ej. Alt+F4 sobre la ventana del
+  // juego, un crash que mata el proceso de forma abrupta, o el jugador
+  // vuelve a esta ventana sin haber cerrado el juego todavía para chequiar
+  // el progreso), reenfocar el launcher igual dispara una relectura fresca
+  // de /saves — sin esto, la única forma de refrescar sería cambiar de
+  // pestaña o reabrir el launcher entero.
+  mainWindow.on('focus', () => mainWindow.webContents.send('window:focus'));
+
   // Cerrar con la cruz de la barra de título propia (ver window:close más
   // abajo, que termina llamando a mainWindow.close() y disparando esto) ya
   // no cierra el launcher: lo manda a la bandeja, igual que "Mantener

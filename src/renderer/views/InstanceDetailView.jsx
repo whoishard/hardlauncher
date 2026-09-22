@@ -1627,6 +1627,7 @@ function formatBytes(bytes) {
 function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
   const t = useT();
   const [worlds, setWorlds] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [settingsWorld, setSettingsWorld] = useState(null);
   const [exportingPath, setExportingPath] = useState(null);
   const [dragOver, setDragOver] = useState(false);
@@ -1637,8 +1638,19 @@ function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
   // salido en realidad del contenedor grande.
   const dragCounter = useRef(0);
 
-  function reload() {
-    return window.hardLauncher.instances.listWorlds(instanceId).then(setWorlds);
+  // `silent`: no prende el indicador de "Actualizando..." — se usa para los
+  // disparadores automáticos (montaje, refreshSignal, foco de ventana) para
+  // no meter un spinner encima de la grilla cada vez que alguna de esas
+  // señales se dispara sin que el jugador haya pedido nada. El botón manual
+  // de abajo sí lo prende, para que quede claro que el click hizo algo.
+  function reload(silent = true) {
+    if (!silent) setRefreshing(true);
+    return window.hardLauncher.instances
+      .listWorlds(instanceId)
+      .then(setWorlds)
+      .finally(() => {
+        if (!silent) setRefreshing(false);
+      });
   }
 
   useEffect(() => {
@@ -1658,6 +1670,19 @@ function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSignal]);
+
+  // Red de seguridad además de refreshSignal (que depende de que
+  // game.onExit se haya disparado): cada vez que el jugador vuelve a
+  // enfocar la ventana del launcher mientras esta pestaña está montada, se
+  // vuelve a leer /saves de disco. Cubre los casos en los que el proceso
+  // del juego termina de una forma que el launcher no llega a detectar
+  // como "salida normal" (cierre forzado, crash), o simplemente el jugador
+  // vuelve a mirar el launcher sin haber cerrado Minecraft todavía.
+  useEffect(() => {
+    const unsub = window.hardLauncher.window.onFocus(() => reload());
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instanceId]);
 
   async function handleDuplicate(world) {
     try {
@@ -1761,6 +1786,25 @@ function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
     }
   }
 
+  // Botón de refresco manual: además de los disparadores automáticos
+  // (montaje, cierre del juego, foco de ventana — ver los useEffect de
+  // arriba), esto le da al jugador una forma directa de forzar una
+  // relectura fresca de /saves si por lo que sea no confía en que ya se
+  // haya actualizado sola (ej. cambió algo y volvió al launcher sin que la
+  // ventana perdiera el foco en el medio).
+  const refreshButton = (
+    <button
+      type="button"
+      className={'content-refresh-link' + (refreshing ? ' spinning' : '')}
+      onClick={() => reload(false)}
+      disabled={refreshing}
+      title={t('worlds.refresh')}
+    >
+      <Icon name="refresh" size={14} />
+      {refreshing ? t('worlds.refreshing') : t('worlds.refresh')}
+    </button>
+  );
+
   if (worlds === null) return <p style={{ color: 'var(--text-secondary)' }}>{t('worlds.loading')}</p>;
   if (worlds.length === 0) {
     return (
@@ -1777,6 +1821,9 @@ function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
             <span>{t('worlds.dropHint')}</span>
           </div>
         )}
+        <div className="content-toolbar" style={{ justifyContent: 'flex-end' }}>
+          {refreshButton}
+        </div>
         <div className="empty-state">
           <div className="empty-state-icon">
             <Icon name="globe" size={64} strokeWidth={1.3} />
@@ -1816,6 +1863,9 @@ function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
           <span>{t('worlds.dropHint')}</span>
         </div>
       )}
+      <div className="content-toolbar" style={{ justifyContent: 'flex-end' }}>
+        {refreshButton}
+      </div>
       <div className="worlds-grid">
         {worlds.map((w, i) => (
           <WorldCard

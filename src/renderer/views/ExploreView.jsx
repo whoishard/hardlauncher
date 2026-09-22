@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store.js';
@@ -8,6 +8,7 @@ import Pagination from '../components/Pagination.jsx';
 import InstanceTargetPicker from '../components/InstanceTargetPicker.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
 import Icon from '../components/Icon.jsx';
+import useInstallProgressStore from '../hooks/useInstallProgressStore.js';
 import { useT } from '../i18n.js';
 
 // BUG FIX: a esta lista le faltaba el tipo 'mod', que es el projectType con el
@@ -93,7 +94,12 @@ export default function ExploreView() {
   // por vez acá (ambos flags son un solo id, no un set), así que un único
   // estado compartido alcanza para saber qué mostrar en la fila que
   // corresponda.
-  const [installProgress, setInstallProgress] = useState(null); // { percent, file } | null
+  //
+  // PERF FIX: esto YA NO es un useState — ver useInstallProgressStore.js
+  // para el motivo (los ticks de progreso, que llegan varias veces por
+  // segundo, forzaban un re-render completo de la vista). progressStore es
+  // una referencia estable durante toda la vida de este componente.
+  const progressStore = useInstallProgressStore();
   const [targetInstanceId, setTargetInstanceId] = useState(instances[0]?.id || '');
   const [appliedInstanceParam, setAppliedInstanceParam] = useState(false);
 
@@ -160,18 +166,18 @@ export default function ExploreView() {
     const unsub = window.hardLauncher.modrinth.onInstallProgress((data) => {
       if (!installingId && !installingModpackId) return; // no es una instalación disparada desde esta lista
       if (data.stage === 'progress' && data.total) {
-        setInstallProgress({ percent: (data.downloaded / data.total) * 100, file: data.file });
+        progressStore.set({ percent: (data.downloaded / data.total) * 100, file: data.file });
       } else if (data.stage === 'downloading' && data.total) {
-        setInstallProgress({
+        progressStore.set({
           percent: (data.completed / data.total) * 100,
           file: `${data.completed} / ${data.total} archivos`,
         });
       } else {
-        setInstallProgress({ percent: null, file: data.file });
+        progressStore.set({ percent: null, file: data.file });
       }
     });
     return unsub;
-  }, [installingId, installingModpackId]);
+  }, [installingId, installingModpackId, progressStore]);
 
   // Si esta vista se desmonta a mitad de una instalación (el usuario
   // navegó a otra pantalla apretando un link), el toast flotante global
@@ -290,70 +296,80 @@ export default function ExploreView() {
     setMcVersions([]);
   }
 
-  async function handleInstall(hit) {
-    if (!targetInstance) {
-      pushToast(tr('explore.needTarget'), 'error');
-      return;
-    }
-    setInstallingId(hit.project_id);
-    setInstallProgress(null);
-    setInlineInstallActive(true);
-    try {
-      // El filtro "loader" de Modrinth solo tiene sentido para mods y
-      // modpacks (fabric/forge/quilt/neoforge). Los resource packs usan el
-      // tag "minecraft" y los shaders usan tags como "iris"/"optifine"/
-      // "canvas", que nunca coinciden con el loader de la instancia — si se
-      // mandaba igual, la API devolvía 0 versiones y aparecía el falso
-      // "No hay una versión compatible" para packs y shaders perfectamente
-      // instalables. Solo se filtra por loader cuando aplica.
-      const usesLoaderFilter = hit.project_type === 'mod' || hit.project_type === 'modpack';
-      const versionsForHit = await window.hardLauncher.modrinth.versions(hit.project_id, {
-        mcVersion: targetInstance.mcVersion,
-        loader: usesLoaderFilter && targetInstance.loader !== 'vanilla' ? targetInstance.loader : undefined,
-      });
-      if (!versionsForHit.length) {
-        pushToast(tr('explore.noCompat'), 'error');
+  // PERF FIX: useCallback (en vez de una función nueva en cada render) para
+  // que las filas de resultado, ahora memoizadas más abajo (ResultRow), no
+  // tengan que volver a renderizarse solo porque ExploreView se re-renderizó
+  // por otro motivo — ver el comentario grande junto a ResultRow.
+  const handleInstall = useCallback(
+    async (hit) => {
+      if (!targetInstance) {
+        pushToast(tr('explore.needTarget'), 'error');
         return;
       }
-      await window.hardLauncher.modrinth.installMod(targetInstance.id, versionsForHit[0]);
-      await refreshInstances();
-      pushToast(tr('explore.installedIn', { title: hit.title, name: targetInstance.name }), 'success');
-    } catch (e) {
-      pushToast(tr('explore.installError', { error: e.message }), 'error');
-    } finally {
-      setInstallingId(null);
-      setInstallProgress(null);
-      setInlineInstallActive(false);
-    }
-  }
+      setInstallingId(hit.project_id);
+      progressStore.set(null);
+      setInlineInstallActive(true);
+      try {
+        // El filtro "loader" de Modrinth solo tiene sentido para mods y
+        // modpacks (fabric/forge/quilt/neoforge). Los resource packs usan el
+        // tag "minecraft" y los shaders usan tags como "iris"/"optifine"/
+        // "canvas", que nunca coinciden con el loader de la instancia — si se
+        // mandaba igual, la API devolvía 0 versiones y aparecía el falso
+        // "No hay una versión compatible" para packs y shaders perfectamente
+        // instalables. Solo se filtra por loader cuando aplica.
+        const usesLoaderFilter = hit.project_type === 'mod' || hit.project_type === 'modpack';
+        const versionsForHit = await window.hardLauncher.modrinth.versions(hit.project_id, {
+          mcVersion: targetInstance.mcVersion,
+          loader: usesLoaderFilter && targetInstance.loader !== 'vanilla' ? targetInstance.loader : undefined,
+        });
+        if (!versionsForHit.length) {
+          pushToast(tr('explore.noCompat'), 'error');
+          return;
+        }
+        await window.hardLauncher.modrinth.installMod(targetInstance.id, versionsForHit[0]);
+        await refreshInstances();
+        pushToast(tr('explore.installedIn', { title: hit.title, name: targetInstance.name }), 'success');
+      } catch (e) {
+        pushToast(tr('explore.installError', { error: e.message }), 'error');
+      } finally {
+        setInstallingId(null);
+        progressStore.set(null);
+        setInlineInstallActive(false);
+      }
+    },
+    [targetInstance, tr, pushToast, refreshInstances, setInlineInstallActive, progressStore]
+  );
 
   // Un modpack siempre crea su propia instancia (con su ícono y todo su
   // contenido ya instalado), así que en vez del botón "Instalar" normal
   // (que agrega contenido a una instancia existente) se abre un pequeño
   // selector para elegir para qué versión del juego se quiere instalar.
-  async function openModpackPicker(hit) {
-    if (modpackPicker?.hit.project_id === hit.project_id) {
-      setModpackPicker(null);
-      return;
-    }
-    setModpackPicker({ hit, versions: [], gameVersions: [], selected: '', loading: true });
-    try {
-      const allVersions = await window.hardLauncher.modrinth.versions(hit.project_id, {});
-      const withMrpack = allVersions.filter((v) => (v.files || []).some((f) => f.filename.toLowerCase().endsWith('.mrpack')));
-      const gameVersions = Array.from(new Set(withMrpack.flatMap((v) => v.game_versions || [])));
-      if (!withMrpack.length) {
-        pushToast(tr('explore.modpackNoVersions'), 'error');
+  const openModpackPicker = useCallback(
+    async (hit) => {
+      if (modpackPicker?.hit.project_id === hit.project_id) {
         setModpackPicker(null);
         return;
       }
-      setModpackPicker({ hit, versions: withMrpack, gameVersions, selected: gameVersions[0] || '', loading: false });
-    } catch (e) {
-      pushToast(tr('explore.modpackVersionsError', { error: e.message }), 'error');
-      setModpackPicker(null);
-    }
-  }
+      setModpackPicker({ hit, versions: [], gameVersions: [], selected: '', loading: true });
+      try {
+        const allVersions = await window.hardLauncher.modrinth.versions(hit.project_id, {});
+        const withMrpack = allVersions.filter((v) => (v.files || []).some((f) => f.filename.toLowerCase().endsWith('.mrpack')));
+        const gameVersions = Array.from(new Set(withMrpack.flatMap((v) => v.game_versions || [])));
+        if (!withMrpack.length) {
+          pushToast(tr('explore.modpackNoVersions'), 'error');
+          setModpackPicker(null);
+          return;
+        }
+        setModpackPicker({ hit, versions: withMrpack, gameVersions, selected: gameVersions[0] || '', loading: false });
+      } catch (e) {
+        pushToast(tr('explore.modpackVersionsError', { error: e.message }), 'error');
+        setModpackPicker(null);
+      }
+    },
+    [modpackPicker, pushToast, tr]
+  );
 
-  async function confirmModpackInstall() {
+  const confirmModpackInstall = useCallback(async () => {
     if (!modpackPicker) return;
     const match = modpackPicker.versions.find((v) => (v.game_versions || []).includes(modpackPicker.selected));
     if (!match) {
@@ -361,7 +377,7 @@ export default function ExploreView() {
       return;
     }
     setInstallingModpackId(modpackPicker.hit.project_id);
-    setInstallProgress(null);
+    progressStore.set(null);
     setInlineInstallActive(true);
     try {
       const instance = await window.hardLauncher.modrinth.installModpackFromVersion(match, modpackPicker.hit.title);
@@ -373,10 +389,10 @@ export default function ExploreView() {
       pushToast(tr('explore.modpackError', { error: e.message }), 'error');
     } finally {
       setInstallingModpackId(null);
-      setInstallProgress(null);
+      progressStore.set(null);
       setInlineInstallActive(false);
     }
-  }
+  }, [modpackPicker, pushToast, tr, refreshInstances, navigate, setInlineInstallActive, progressStore]);
 
   return (
     <div ref={topRef}>
@@ -467,134 +483,38 @@ export default function ExploreView() {
               {results.map((hit, i) => {
               const isModpackHit = hit.project_type === 'modpack';
               const pickerOpen = isModpackHit && modpackPicker?.hit.project_id === hit.project_id;
+              const isInstallingThis = isModpackHit ? installingModpackId === hit.project_id : installingId === hit.project_id;
               return (
-                <motion.div
+                <ResultRow
                   key={hit.project_id}
-                  layout
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.2, delay: Math.min(i * 0.02, 0.3), ease: [0.16, 1, 0.3, 1] }}
-                  className="card result-row"
-                  style={{ flexDirection: 'column', alignItems: 'stretch', position: 'relative', overflow: 'hidden' }}
-                >
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <img
-                      src={hit.icon_url || 'https://placehold.co/64x64/18142a/8b5cf6'}
-                      alt=""
-                      className="result-icon"
-                    />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600 }}>
-                        <Link
-                          to={`/project/${hit.project_id}${targetInstanceId ? `?instance=${targetInstanceId}` : ''}`}
-                          // BUG FIX: el botón "Atrás" del detalle de proyecto
-                          // volvía siempre a "/explore" a secas, perdiendo la
-                          // pestaña (Mods/Modpacks/...) y cualquier otro
-                          // filtro que hubiera en la URL en ese momento — se
-                          // sentía como si "te mandara a Mods" al volver
-                          // desde un modpack. Guardando la URL completa de
-                          // esta misma vista en el state de navegación,
-                          // ProjectDetailView puede volver exactamente acá.
-                          state={{ backHref: `${location.pathname}${location.search}` }}
-                          style={{ color: 'inherit', textDecoration: 'none' }}
-                        >
-                          {hit.title}
-                        </Link>{' '}
-                        <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{tr('explore.by', { author: hit.author })}</span>
-                      </div>
-                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{hit.description}</div>
-                      <div className="result-tags">
-                        {(hit.display_categories || hit.categories || []).slice(0, 5).map((c) => (
-                          <span key={c} className="badge">
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="result-stats">
-                      <div>{tr('explore.downloads', { n: hit.downloads?.toLocaleString() })}</div>
-                      <div>{tr('explore.follows', { n: hit.follows?.toLocaleString() })}</div>
-                      {isModpackHit ? (
-                        <motion.button
-                          className="btn-primary btn-icon-label"
-                          onClick={() => openModpackPicker(hit)}
-                          disabled={installingModpackId === hit.project_id}
-                          whileHover={{ scale: 1.03 }}
-                          whileTap={{ scale: 0.97 }}
-                        >
-                          <Icon name="package" size={13} />
-                          {installingModpackId === hit.project_id
-                            ? tr('common.installing')
-                            : pickerOpen
-                            ? tr('common.cancel')
-                            : tr('common.install')}
-                        </motion.button>
-                      ) : installedProjectIds.has(hit.project_id) ? (
-                        <span className="installed-pill">
-                          <Icon name="check" size={13} strokeWidth={2.4} />
-                          {tr('explore.installed')}
-                        </span>
-                      ) : (
-                        <motion.button
-                          className="btn-primary"
-                          onClick={() => handleInstall(hit)}
-                          disabled={installingId === hit.project_id || !targetInstance}
-                          whileHover={{ scale: 1.03 }}
-                          whileTap={{ scale: 0.97 }}
-                        >
-                          {installingId === hit.project_id ? tr('common.installing') : tr('common.install')}
-                        </motion.button>
-                      )}
-                    </div>
-                  </div>
-
-                  <AnimatePresence>
-                    {pickerOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0, marginTop: 0, paddingTop: 0 }}
-                        animate={{ opacity: 1, height: 'auto', marginTop: 12, paddingTop: 12 }}
-                        exit={{ opacity: 0, height: 0, marginTop: 0, paddingTop: 0 }}
-                        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          overflow: 'hidden',
-                          borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-                        }}
-                      >
-                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tr('explore.gameVersion')}</span>
-                        {modpackPicker.loading ? (
-                          <span className="mini-spinner" />
-                        ) : installingModpackId === hit.project_id ? (
-                          // Mismo criterio que en la fila de mods: mientras se
-                          // instala, la barra de progreso ocupa el lugar del
-                          // selector + botón en vez de abrir un popup aparte.
-                          <div style={{ flex: 1 }}>
-                            <ProgressBar percent={installProgress?.percent ?? null} hint={installProgress?.file} />
-                          </div>
-                        ) : (
-                          <>
-                            <Select
-                              value={modpackPicker.selected}
-                              onChange={(v) => setModpackPicker((s) => ({ ...s, selected: v }))}
-                              options={modpackPicker.gameVersions.map((gv) => ({ value: gv, label: `Minecraft ${gv}` }))}
-                              style={{ minWidth: 160 }}
-                            />
-                            <button
-                              className="btn-primary btn-icon-label"
-                              onClick={confirmModpackInstall}
-                              disabled={installingModpackId === hit.project_id}
-                            >
-                              {tr('explore.createInstance')}
-                            </button>
-                          </>
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
+                  hit={hit}
+                  index={i}
+                  isModpackHit={isModpackHit}
+                  pickerOpen={pickerOpen}
+                  // Solo la fila que corresponde recibe el objeto de
+                  // picker real -- el resto recibe `null`, así que una carga
+                  // de versiones no le cambia las props (y por lo tanto no
+                  // la re-renderiza) a ninguna otra fila. Ver el comentario
+                  // grande junto a ResultRow, más abajo en este archivo.
+                  //
+                  // progressStore SÍ se pasa a todas las filas por igual —
+                  // es una referencia estable (ver useInstallProgressStore.js)
+                  // y no dispara re-render por sí sola; cada fila decide
+                  // puertas adentro (con isInstalling) si le corresponde
+                  // suscribirse a ella o no.
+                  modpackPickerData={pickerOpen ? modpackPicker : null}
+                  progressStore={progressStore}
+                  isInstalled={installedProjectIds.has(hit.project_id)}
+                  isInstalling={isInstallingThis}
+                  disabledInstall={!targetInstance}
+                  targetInstanceId={targetInstanceId}
+                  backHref={`${location.pathname}${location.search}`}
+                  tr={tr}
+                  onOpenModpackPicker={openModpackPicker}
+                  onInstall={handleInstall}
+                  onConfirmModpackInstall={confirmModpackInstall}
+                  onChangeModpackVersion={(v) => setModpackPicker((s) => ({ ...s, selected: v }))}
+                />
               );
               })}
             </AnimatePresence>
@@ -626,4 +546,210 @@ export default function ExploreView() {
         </div>
     </div>
   );
+}
+
+/**
+ * PERF FIX (historia completa): esta fila vivía antes como JSX inline
+ * dentro del .map() de ExploreView, y el progreso de instalación vivía en
+ * un useState del padre. Esa combinación era la fuente del lag reportado
+ * al instalar un mod: el progreso llega por IPC varias veces por segundo
+ * (una vez por cada chunk de datos recibido, ver downloadFile en
+ * modInstaller.js) y cada tick volvía a renderizar ExploreView entero —
+ * reconstruyendo el JSX de las 100 filas de la página (ver
+ * PAGE_SIZE_OPTIONS) y re-midiendo el layout de todas ellas por el
+ * `layout` de framer-motion (que hace un getBoundingClientRect de cada
+ * nodo), no solo de la fila que se estaba instalando.
+ *
+ * Dos cambios, uno arriba de otro, resuelven esto:
+ * 1. Envolver la fila en React.memo y pasarle solo props "primitivas" o ya
+ *    filtradas por fila desde el padre (ver el bloque que arma cada
+ *    <ResultRow> más arriba: `modpackPickerData` llega en `null` para
+ *    cualquier fila que no sea la afectada, `isInstalled` es un boolean ya
+ *    calculado en vez del Set entero, etc.), así un cambio de filtro o de
+ *    página no repinta ni remide filas que no cambiaron.
+ * 2. Sacar el progreso del useState del padre: `progressStore` (ver
+ *    useInstallProgressStore.js) es una referencia estable que vive fuera
+ *    de React, y solo InstallProgressBar (más abajo) se suscribe a ella
+ *    con useSyncExternalStore. Así un tick de progreso ya ni siquiera
+ *    re-renderiza ExploreView — mucho menos las 99 filas que no están
+ *    instalando nada.
+ */
+const ResultRow = React.memo(function ResultRow({
+  hit,
+  index,
+  isModpackHit,
+  pickerOpen,
+  modpackPickerData,
+  progressStore,
+  isInstalled,
+  isInstalling,
+  disabledInstall,
+  targetInstanceId,
+  backHref,
+  tr,
+  onOpenModpackPicker,
+  onInstall,
+  onConfirmModpackInstall,
+  onChangeModpackVersion,
+}) {
+  // Se muestra la barra de progreso inline para una instalación de mod
+  // "simple" (no modpack) — antes esta fila no tenía ningún feedback
+  // aparte del texto "Instalando..." en el botón, deshabilitado, sin
+  // indicación de cuánto faltaba.
+  const showModProgress = isInstalling && !isModpackHit;
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2, delay: Math.min(index * 0.02, 0.3), ease: [0.16, 1, 0.3, 1] }}
+      className="card result-row"
+      style={{ flexDirection: 'column', alignItems: 'stretch', position: 'relative', overflow: 'hidden' }}
+    >
+      <div style={{ display: 'flex', gap: 12 }}>
+        <img src={hit.icon_url || 'https://placehold.co/64x64/18142a/8b5cf6'} alt="" className="result-icon" />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600 }}>
+            <Link
+              to={`/project/${hit.project_id}${targetInstanceId ? `?instance=${targetInstanceId}` : ''}`}
+              // BUG FIX: el botón "Atrás" del detalle de proyecto volvía
+              // siempre a "/explore" a secas, perdiendo la pestaña
+              // (Mods/Modpacks/...) y cualquier otro filtro que hubiera en
+              // la URL en ese momento — se sentía como si "te mandara a
+              // Mods" al volver desde un modpack. Guardando la URL completa
+              // de la vista en el state de navegación, ProjectDetailView
+              // puede volver exactamente acá.
+              state={{ backHref }}
+              style={{ color: 'inherit', textDecoration: 'none' }}
+            >
+              {hit.title}
+            </Link>{' '}
+            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{tr('explore.by', { author: hit.author })}</span>
+          </div>
+          <div className="result-description">{hit.description}</div>
+          <div className="result-tags">
+            {(hit.display_categories || hit.categories || []).slice(0, 5).map((c) => (
+              <span key={c} className="badge">
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="result-stats">
+          <span className="topbar-sub-item">
+            <Icon name="download" size={13} />
+            {tr('explore.downloads', { n: hit.downloads?.toLocaleString() })}
+          </span>
+          <span className="topbar-sub-item">
+            <Icon name="heart" size={13} />
+            {tr('explore.follows', { n: hit.follows?.toLocaleString() })}
+          </span>
+          {isModpackHit ? (
+            <motion.button
+              className="btn-primary btn-icon-label"
+              onClick={() => onOpenModpackPicker(hit)}
+              disabled={isInstalling}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              <Icon name="package" size={13} />
+              {isInstalling ? tr('common.installing') : pickerOpen ? tr('common.cancel') : tr('common.install')}
+            </motion.button>
+          ) : isInstalled ? (
+            <span className="installed-pill">
+              <Icon name="check" size={13} strokeWidth={2.4} />
+              {tr('explore.installed')}
+            </span>
+          ) : (
+            <motion.button
+              className="btn-primary"
+              onClick={() => onInstall(hit)}
+              disabled={isInstalling || disabledInstall}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              {isInstalling ? tr('common.installing') : tr('common.install')}
+            </motion.button>
+          )}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {pickerOpen && modpackPickerData ? (
+          <motion.div
+            key="modpack-picker"
+            initial={{ opacity: 0, height: 0, marginTop: 0, paddingTop: 0 }}
+            animate={{ opacity: 1, height: 'auto', marginTop: 12, paddingTop: 12 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0, paddingTop: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              overflow: 'hidden',
+              borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+            }}
+          >
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tr('explore.gameVersion')}</span>
+            {modpackPickerData.loading ? (
+              <span className="mini-spinner" />
+            ) : isInstalling ? (
+              // Mismo criterio que en la fila de mods: mientras se instala,
+              // la barra de progreso ocupa el lugar del selector + botón en
+              // vez de abrir un popup aparte.
+              <div style={{ flex: 1 }}>
+                <InstallProgressBar store={progressStore} />
+              </div>
+            ) : (
+              <>
+                <Select
+                  value={modpackPickerData.selected}
+                  onChange={onChangeModpackVersion}
+                  options={modpackPickerData.gameVersions.map((gv) => ({ value: gv, label: `Minecraft ${gv}` }))}
+                  style={{ minWidth: 160 }}
+                />
+                <button className="btn-primary btn-icon-label" onClick={onConfirmModpackInstall} disabled={isInstalling}>
+                  {tr('explore.createInstance')}
+                </button>
+              </>
+            )}
+          </motion.div>
+        ) : showModProgress ? (
+          // Antes una instalación de mod "simple" no tenía ningún feedback
+          // acá abajo (solo el botón deshabilitado diciendo "Instalando...")
+          // — este panel reusa exactamente la misma animación de expansión
+          // que el picker de modpacks de arriba, así la fila no "salta" ni
+          // se siente distinta según qué tipo de contenido se esté bajando.
+          <motion.div
+            key="mod-progress"
+            initial={{ opacity: 0, height: 0, marginTop: 0, paddingTop: 0 }}
+            animate={{ opacity: 1, height: 'auto', marginTop: 12, paddingTop: 12 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0, paddingTop: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            style={{
+              overflow: 'hidden',
+              borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+            }}
+          >
+            <InstallProgressBar store={progressStore} />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
+  );
+});
+
+/**
+ * Suscribe ÚNICAMENTE esta piecita a progressStore (ver
+ * useInstallProgressStore.js) con useSyncExternalStore. Al vivir en su
+ * propio componente, un tick de progreso re-renderiza solo esto — el ícono,
+ * el título, la descripción y los tags del resto de la fila ni se tocan.
+ * Se monta nada más que mientras la fila que corresponde está realmente
+ * instalando algo (ver showModProgress / `isInstalling` más arriba), así
+ * que el resto de las filas ni siquiera tiene esta suscripción activa.
+ */
+function InstallProgressBar({ store }) {
+  const progress = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  return <ProgressBar percent={progress?.percent ?? null} hint={progress?.file} />;
 }

@@ -92,6 +92,28 @@ async function installProjectVersion(
   const depLoader = versionContext?.loader ?? instance.loader;
   for (const dep of versionData.dependencies || []) {
     if (dep.dependency_type !== 'required') continue;
+
+    // BUG FIX (mods duplicados en distintas versiones): antes esto resolvía
+    // y bajaba la dependencia sin fijarse si ESE proyecto ya estaba
+    // instalado en la instancia bajo otra versión. Es común que dos mods
+    // distintos dependan de la misma API (ej. Fabric API) — si se
+    // instalaban en momentos distintos y Modrinth publicó una versión nueva
+    // de esa API entre uno y otro, cada instalación arrastraba "la más
+    // nueva disponible en ese momento" como dependencia, y el merge de más
+    // abajo solo reemplaza por nombre de archivo exacto — como el nombre
+    // del .jar cambia con la versión, terminaban conviviendo DOS archivos
+    // del mismo proyecto (uno por cada versión) en vez de que el nuevo
+    // reemplace al viejo. Ahora, si el proyecto de la dependencia ya figura
+    // en el contenido actual (releído fresco, así ve también lo que
+    // acaban de agregar otras dependencias resueltas en esta misma
+    // llamada — el loop es secuencial con await, así que ya están
+    // escritas en el store para cuando se llega acá), se lo deja como está
+    // en vez de bajar otra versión al lado.
+    const alreadyHasProject = instanceStore
+      .getInstance(instanceId)
+      ?.content.some((c) => c.projectId === dep.project_id);
+    if (alreadyHasProject) continue;
+
     let depVersion = dep.version_id ? await modrinthApi.getVersion(dep.version_id, { priority: true }) : null;
     if (!depVersion && dep.project_id) {
       const versions = await modrinthApi.getProjectVersions(dep.project_id, {
@@ -159,9 +181,38 @@ async function installProjectVersion(
   // el merge, para partir siempre de la versión más reciente del store
   // (incluidas las dependencias que se acaban de agregar) en vez de la
   // capturada al principio de la función.
+  //
+  // BUG FIX (mods duplicados en distintas versiones — ver también el guard
+  // de arriba, en la resolución de dependencias): acá el filtro era solo
+  // por `fileName` exacto, así que si por la razón que fuera este mismo
+  // proyecto ya tenía una entrada con OTRO nombre de archivo (otra versión),
+  // esa entrada vieja quedaba tal cual en `content` en vez de reemplazarse
+  // — y su .jar seguía en disco al lado del nuevo. Ahora se filtra por
+  // `projectId` además de por `fileName`, y el/los archivo(s) de esas
+  // entradas viejas (y su ".disabled" si estaban desactivadas) se borran de
+  // disco antes de escribir la entrada nueva — mismo criterio que ya usan
+  // updateContentItem/changeContentVersion al cambiar de versión, pero
+  // aplicado acá también para que una dependencia resuelta a una versión
+  // distinta de un proyecto que ya estaba instalado (o cualquier otro
+  // camino que llegue a instalar dos veces el mismo proyecto) no deje dos
+  // archivos conviviendo.
   const latestInstance = instanceStore.getInstance(instanceId);
+  const staleSameProject = latestInstance.content.filter(
+    (c) => c.projectId === project.id && c.fileName !== primaryFile.filename
+  );
+  if (staleSameProject.length) {
+    const staleDir = path.join(instance.dir, folderForType(project.project_type));
+    for (const stale of staleSameProject) {
+      [stale.fileName, `${stale.fileName}.disabled`].forEach((name) => {
+        const p = path.join(staleDir, name);
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      });
+    }
+  }
   const updatedContent = [
-    ...latestInstance.content.filter((c) => c.fileName !== primaryFile.filename),
+    ...latestInstance.content.filter(
+      (c) => c.fileName !== primaryFile.filename && c.projectId !== project.id
+    ),
     contentEntry,
   ];
   instanceStore.updateInstance(instanceId, { content: updatedContent });

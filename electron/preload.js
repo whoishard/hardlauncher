@@ -22,6 +22,16 @@ contextBridge.exposeInMainWorld('hardLauncher', {
       ipcRenderer.on('window:maximizedChanged', listener);
       return () => ipcRenderer.removeListener('window:maximizedChanged', listener);
     },
+    // Se dispara cada vez que la ventana del launcher vuelve a tener foco
+    // (ver mainWindow.on('focus', ...) en electron/main.js). Usado como red
+    // de seguridad para refrescar datos que pueden haber cambiado mientras
+    // el jugador estaba adentro del juego (ver WorldsTab en
+    // InstanceDetailView.jsx).
+    onFocus: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on('window:focus', listener);
+      return () => ipcRenderer.removeListener('window:focus', listener);
+    },
     // Disparado desde el popup del ícono de bandeja (ver electron/main.js,
     // trayMenu:action) cuando el usuario elige "Inicio" o "Instancias"
     // estando el launcher oculto: llega la ruta a la que navegar una vez
