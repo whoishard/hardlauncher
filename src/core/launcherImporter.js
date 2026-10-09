@@ -832,13 +832,83 @@ async function detectInstalledLaunchers() {
   return results;
 }
 
-function copyGameData(sourceDir, destDir) {
-  for (const folder of DATA_FOLDERS) {
-    const src = path.join(sourceDir, folder);
-    if (fs.existsSync(src)) {
-      fs.cpSync(src, path.join(destDir, folder), { recursive: true, force: true });
+async function listFilesRecursive(root) {
+  const out = [];
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (e.isFile()) out.push(p);
     }
   }
+  return out;
+}
+
+/**
+ * Copia (o mueve) las carpetas de datos de una instancia. ANTES usaba
+ * fs.cpSync: copia síncrona de TODO (mods + mundos, a veces varios GB) que
+ * bloqueaba el proceso principal entero — la ventana dejaba de responder y
+ * Windows la marcaba como "no responde"/cerrada. Ahora es asíncrona, con
+ * pocas copias en paralelo, progreso y sin abortar todo por un archivo
+ * bloqueado.
+ */
+async function copyGameData(sourceDir, destDir, { onProgress, label, move = false } = {}) {
+  const pending = [];
+  for (const folder of DATA_FOLDERS) {
+    const src = path.join(sourceDir, folder);
+    if (!fs.existsSync(src)) continue;
+    const dest = path.join(destDir, folder);
+
+    // Mover la carpeta entera es instantáneo cuando origen y destino están en
+    // el mismo disco; si falla (otro disco, destino ya existente) se copia.
+    if (move && !fs.existsSync(dest)) {
+      try {
+        await fs.promises.rename(src, dest);
+        continue;
+      } catch {
+        /* se copia archivo por archivo */
+      }
+    }
+    pending.push({ src, dest });
+  }
+  if (!pending.length) return;
+
+  const jobs = [];
+  for (const { src, dest } of pending) {
+    for (const file of await listFilesRecursive(src)) {
+      jobs.push({ from: file, to: path.join(dest, path.relative(src, file)) });
+    }
+  }
+
+  let done = 0;
+  let next = 0;
+  let failedCount = 0;
+  async function worker() {
+    while (next < jobs.length) {
+      const { from, to } = jobs[next++];
+      try {
+        await fs.promises.mkdir(path.dirname(to), { recursive: true });
+        await fs.promises.copyFile(from, to);
+      } catch (e) {
+        failedCount++;
+        if (failedCount <= 5) onProgress?.({ stage: 'warning', message: `No se pudo copiar ${path.basename(from)}: ${e.message}` });
+      }
+      done++;
+      if (done % 25 === 0 || done === jobs.length) {
+        onProgress?.({ stage: 'extracting', project: label, file: `${done}/${jobs.length}` });
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, worker));
+  if (failedCount > 5) onProgress?.({ stage: 'warning', message: `Otros ${failedCount - 5} archivos no se pudieron copiar.` });
 }
 
 /**
@@ -851,7 +921,7 @@ function copyGameData(sourceDir, destDir) {
  * que se la mostró al usuario y que confirmó la importación) se saltean en
  * silencio en vez de cortar el resto de la importación.
  */
-async function importSelectedInstances(instanceDirs, onProgress) {
+async function importSelectedInstances(instanceDirs, onProgress, { move = false } = {}) {
   const imported = [];
   // Memoizado por carpeta padre para no reabrir la misma app.db una vez por
   // cada perfil seleccionado dentro del mismo launcher.
@@ -879,7 +949,7 @@ async function importSelectedInstances(instanceDirs, onProgress) {
       loader: detected.loader,
       loaderVersion: detected.loaderVersion,
     });
-    copyGameData(detected.gameDir, instance.dir);
+    await copyGameData(detected.gameDir, instance.dir, { onProgress, label: detected.name, move });
     imported.push(instance);
   }
   return imported;

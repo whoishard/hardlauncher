@@ -2,6 +2,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { pipeline } = require('stream/promises');
 const { app } = require('electron');
 
 const MANIFEST_URL = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
@@ -44,7 +45,55 @@ function sha1File(filePath) {
   });
 }
 
-async function downloadFile(url, destPath, expectedSha1, onProgress) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const DOWNLOAD_IDLE_TIMEOUT_MS = 30000;
+
+/** Un intento de descarga a `tmpPath`, en streaming y con corte por inactividad. */
+async function downloadOnce(url, tmpPath, displayName, onProgress) {
+  const response = await axios.get(url, { responseType: 'stream', timeout: 30000, maxRedirects: 5 });
+  const total = parseInt(response.headers['content-length'] || '0', 10);
+  let downloaded = 0;
+  let lastTick = 0;
+
+  // Si el servidor deja de mandar datos (conexión colgada a mitad de un mod),
+  // se corta en vez de quedar esperando para siempre.
+  let idle;
+  const arm = () => {
+    clearTimeout(idle);
+    idle = setTimeout(
+      () => response.data.destroy(new Error('La descarga se detuvo (30 s sin recibir datos).')),
+      DOWNLOAD_IDLE_TIMEOUT_MS
+    );
+  };
+  arm();
+
+  response.data.on('data', (chunk) => {
+    downloaded += chunk.length;
+    arm();
+    if (onProgress && total) {
+      // Sin throttle esto emitía un evento por cada chunk (miles por segundo
+      // con varias descargas en paralelo).
+      const now = Date.now();
+      if (now - lastTick > 250 || downloaded === total) {
+        lastTick = now;
+        onProgress({ file: displayName, downloaded, total });
+      }
+    }
+  });
+
+  try {
+    // pipeline() propaga los errores del stream de red Y del de escritura, y
+    // destruye ambos. Antes se usaba .pipe() sin escuchar 'error' en
+    // response.data: un corte de red a mitad de descarga lanzaba una
+    // excepción NO atrapada en el proceso principal (o dejaba la promesa
+    // colgada para siempre).
+    await pipeline(response.data, fs.createWriteStream(tmpPath));
+  } finally {
+    clearTimeout(idle);
+  }
+}
+
+async function downloadFile(url, destPath, expectedSha1, onProgress, { retries = 3 } = {}) {
   fs.mkdirSync(path.dirname(destPath), { recursive: true });
 
   // Evita re-descargar si ya existe y el hash coincide.
@@ -53,23 +102,30 @@ async function downloadFile(url, destPath, expectedSha1, onProgress) {
     if (existingHash === expectedSha1) return destPath;
   }
 
-  const response = await axios.get(url, { responseType: 'stream' });
-  const writer = fs.createWriteStream(destPath);
-  let downloaded = 0;
-  const total = parseInt(response.headers['content-length'] || '0', 10);
-
-  response.data.on('data', (chunk) => {
-    downloaded += chunk.length;
-    if (onProgress && total) onProgress({ file: path.basename(destPath), downloaded, total });
-  });
-
-  await new Promise((resolve, reject) => {
-    response.data.pipe(writer);
-    writer.on('finish', resolve);
-    writer.on('error', reject);
-  });
-
-  return destPath;
+  // Se descarga a un .part y recién se renombra cuando está completo y
+  // verificado: un corte ya no deja un .jar a medias que parezca válido.
+  const tmpPath = `${destPath}.part`;
+  const displayName = path.basename(destPath);
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      await downloadOnce(url, tmpPath, displayName, onProgress);
+      if (expectedSha1) {
+        const hash = await sha1File(tmpPath);
+        if (hash !== expectedSha1) throw new Error(`El archivo descargado está corrupto (${displayName}).`);
+      }
+      fs.renameSync(tmpPath, destPath);
+      return destPath;
+    } catch (err) {
+      lastError = err;
+      fs.rmSync(tmpPath, { force: true });
+      // 4xx (salvo 408/429) no se arregla reintentando.
+      const status = err?.response?.status;
+      if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) break;
+      if (attempt < retries) await sleep(750 * 2 ** attempt);
+    }
+  }
+  throw lastError;
 }
 
 /**
@@ -83,12 +139,21 @@ async function downloadFile(url, destPath, expectedSha1, onProgress) {
 async function downloadQueue(items, task, concurrency = 12, onBatchProgress) {
   let index = 0;
   let completed = 0;
+  let failed = false;
   const total = items.length;
 
   async function worker() {
-    while (index < items.length) {
+    // Si una tarea falla, los demás workers dejan de tomar items nuevos: antes
+    // seguían bajando en segundo plano después de que la importación ya
+    // había abortado.
+    while (!failed && index < items.length) {
       const current = items[index++];
-      await task(current);
+      try {
+        await task(current);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
       completed++;
       onBatchProgress?.({ completed, total });
     }

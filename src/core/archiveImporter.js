@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const axios = require('axios');
+const { pipeline } = require('stream/promises');
 const { openZip } = require('./zipReader');
 const instanceStore = require('../store/instanceStore');
 const launcherImporter = require('./launcherImporter');
@@ -102,6 +103,9 @@ async function extractPrefix(zip, prefix, destDir, onTick) {
     if (dest) await zip.extractTo(entry, dest);
     done++;
     onTick?.(done, todo.length);
+    // Cede el turno cada tanto para que el proceso principal siga atendiendo
+    // IPC/ventana aunque el modpack tenga decenas de miles de archivos chicos.
+    if (done % 200 === 0) await new Promise((r) => setImmediate(r));
   }
 }
 
@@ -135,27 +139,43 @@ function parseCurseForgeLoader(manifest) {
  * distribución fuera de CurseForge: esos archivos fallan y se reportan
  * aparte en vez de abortar toda la importación.
  */
-async function downloadCurseForgeFile(projectId, fileId, modsDir) {
+async function downloadCurseForgeFile(projectId, fileId, modsDir, retries = 2) {
   const url = `https://www.curseforge.com/api/v1/mods/${projectId}/files/${fileId}/download`;
-  const res = await axios.get(url, {
-    responseType: 'arraybuffer',
-    maxRedirects: 5,
-    timeout: 120000,
-    headers: { 'User-Agent': 'HardLauncher' },
-  });
-
-  const finalUrl = res.request?.res?.responseUrl || url;
-  let fileName = '';
-  try {
-    fileName = decodeURIComponent(path.basename(new URL(finalUrl).pathname));
-  } catch {
-    /* se usa el nombre de respaldo de abajo */
-  }
-  if (!/\.(jar|zip)$/i.test(fileName)) fileName = `${projectId}-${fileId}.jar`;
-  fileName = fileName.replace(/[\\/:*?"<>|]/g, '_');
-
   fs.mkdirSync(modsDir, { recursive: true });
-  fs.writeFileSync(path.join(modsDir, fileName), Buffer.from(res.data));
+  const tmpPath = path.join(modsDir, `.cf-${projectId}-${fileId}.part`);
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      // En streaming a disco: antes se bajaba todo a un ArrayBuffer en memoria
+      // (con 6 descargas en paralelo, mods de cientos de MB llenaban la RAM).
+      const res = await axios.get(url, {
+        responseType: 'stream',
+        maxRedirects: 5,
+        timeout: 60000,
+        headers: { 'User-Agent': 'HardLauncher' },
+      });
+      await pipeline(res.data, fs.createWriteStream(tmpPath));
+
+      const finalUrl = res.request?.res?.responseUrl || url;
+      let fileName = '';
+      try {
+        fileName = decodeURIComponent(path.basename(new URL(finalUrl).pathname));
+      } catch {
+        /* se usa el nombre de respaldo de abajo */
+      }
+      if (!/\.(jar|zip)$/i.test(fileName)) fileName = `${projectId}-${fileId}.jar`;
+      fileName = fileName.replace(/[\\/:*?"<>|]/g, '_');
+      fs.renameSync(tmpPath, path.join(modsDir, fileName));
+      return;
+    } catch (err) {
+      lastError = err;
+      fs.rmSync(tmpPath, { force: true });
+      const status = err?.response?.status;
+      if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) break;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 750 * 2 ** attempt));
+    }
+  }
+  throw lastError;
 }
 
 async function importCurseForgeModpack(zip, info, instanceName, onProgress) {
@@ -214,14 +234,19 @@ async function importInstanceArchive(zip, onProgress) {
     if (!found.length) {
       throw new Error('El .zip parece una instancia, pero no pude leer su versión de Minecraft ni su loader.');
     }
+    // move:true → los datos ya están en una carpeta temporal que se borra
+    // después, así que se MUEVEN a la instancia (instantáneo si es el mismo
+    // disco) en vez de copiarlos y duplicar gigas.
     const imported = await launcherImporter.importSelectedInstances(
       found.map((i) => i.dir),
-      onProgress
+      onProgress,
+      { move: true }
     );
     if (!imported.length) throw new Error('No se pudo importar ninguna instancia de ese archivo.');
     return imported;
   } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    // Async para no congelar el proceso principal borrando miles de archivos.
+    await fs.promises.rm(tmpRoot, { recursive: true, force: true }).catch(() => {});
   }
 }
 

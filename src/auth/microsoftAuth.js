@@ -1,4 +1,22 @@
-const { Auth, tokenUtils } = require('msmc');
+const { Auth, tokenUtils, lexicon } = require('msmc');
+
+// msmc NO lanza objetos Error: lanza strings ("error.gui.closed") u objetos
+// ({ response, ts }). Electron, al propagar eso por ipcMain.handle, lo
+// convierte con String(), y de ahí sale el famoso "[object Object]" en la UI.
+// Esta función lo convierte en un Error real con un mensaje entendible.
+function toReadableError(e) {
+  if (e instanceof Error) return e;
+  try {
+    const { name, message } = lexicon.wrapError(e);
+    if (name === 'error.gui.closed') return new Error('Cerraste la ventana de Microsoft antes de terminar el inicio de sesión.');
+    let detail = '';
+    const res = e && e.response;
+    if (res && res.status) detail = ` (HTTP ${res.status}${res.statusText ? ' ' + res.statusText : ''})`;
+    return new Error(`${message}${detail}${name ? ` [${name}]` : ''}`);
+  } catch {
+    return new Error(typeof e === 'string' ? e : JSON.stringify(e) || 'Error desconocido al iniciar sesión.');
+  }
+}
 const { session } = require('electron');
 
 // Sesión propia (no la del launcher) para la ventana de login de Microsoft,
@@ -29,15 +47,21 @@ const MODERN_UA =
 async function login() {
   const authManager = new Auth('select_account');
   session.fromPartition(MS_AUTH_PARTITION).setUserAgent(MODERN_UA);
-  const xboxManager = await authManager.launch('electron', {
-    width: 500,
-    height: 650,
-    resizable: false,
-    title: 'Microsoft',
-    backgroundColor: '#1b1b1f',
-    webPreferences: { partition: MS_AUTH_PARTITION },
-  }); // abre ventana de login MS
-  const token = await xboxManager.getMinecraft();
+  let token;
+  try {
+    const xboxManager = await authManager.launch('electron', {
+      width: 500,
+      height: 650,
+      resizable: false,
+      title: 'Microsoft',
+      backgroundColor: '#1b1b1f',
+      webPreferences: { partition: MS_AUTH_PARTITION },
+    }); // abre ventana de login MS
+    token = await xboxManager.getMinecraft();
+  } catch (e) {
+    console.error('[msauth] login falló:', e);
+    throw toReadableError(e);
+  }
 
   if (!token.profile) {
     throw new Error('La cuenta de Microsoft no posee licencia de Minecraft: Java Edition.');
@@ -112,7 +136,13 @@ async function refresh(account) {
   // Services en vez de reusar el token viejo si msmc todavía lo considera
   // válido — acá se llama justo porque needsRefresh() ya decidió que hace
   // falta uno nuevo.
-  const refreshed = await mc.refresh(true);
+  let refreshed;
+  try {
+    refreshed = await mc.refresh(true);
+  } catch (e) {
+    console.error('[msauth] refresh falló:', e);
+    throw toReadableError(e);
+  }
   if (!refreshed.profile) {
     throw new Error('La cuenta de Microsoft no posee licencia de Minecraft: Java Edition.');
   }
