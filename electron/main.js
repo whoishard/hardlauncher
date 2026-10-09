@@ -29,6 +29,7 @@ const versionManager = require('../src/core/versionManager');
 const loaderManager = require('../src/core/loaderManager');
 const launcher = require('../src/core/launcher');
 const launcherImporter = require('../src/core/launcherImporter');
+const archiveImporter = require('../src/core/archiveImporter');
 const modrinthApi = require('../src/api/modrinthApi');
 const modInstaller = require('../src/api/modInstaller');
 const serverListStore = require('../src/store/serverListStore');
@@ -710,12 +711,82 @@ function createTray() {
   return tray;
 }
 
+// ---------- Ícono del acceso directo del escritorio (Windows) ----------
+// El ícono del .exe es fijo (rojo), así que el acceso directo "Hard
+// Launcher.lnk" del escritorio mostraba siempre el rojo aunque el acento
+// fuera morado. Windows sí permite cambiarle el ícono a un acceso directo ya
+// creado (shell.writeShortcutLink con 'update'), así que se apunta a un .ico
+// del color elegido. Solo Windows: en Linux/macOS no existe ese concepto.
+const SHORTCUT_ICON_FILES = { red: 'shortcut-red.ico', purple: 'shortcut-purple.ico' };
+
+// El shell de Windows no puede leer archivos que están dentro del app.asar,
+// así que el .ico se copia a la carpeta de datos del usuario (Electron sí lee
+// del asar) y el acceso directo apunta a esa copia.
+function prepareShortcutIcon(accent) {
+  const filename = SHORTCUT_ICON_FILES[accent] || SHORTCUT_ICON_FILES.red;
+  const source = path.join(__dirname, 'assets', filename);
+  if (!fs.existsSync(source)) return null;
+  const destDir = path.join(app.getPath('userData'), 'shortcut-icons');
+  const dest = path.join(destDir, filename);
+  const data = fs.readFileSync(source);
+  let needsCopy = true;
+  try {
+    needsCopy = fs.statSync(dest).size !== data.length;
+  } catch {
+    /* todavía no existe */
+  }
+  if (needsCopy) {
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.writeFileSync(dest, data);
+  }
+  return dest;
+}
+
+function desktopShortcutPaths() {
+  const dirs = [];
+  try {
+    dirs.push(app.getPath('desktop'));
+  } catch {
+    /* sin carpeta de escritorio conocida */
+  }
+  // Instalación "para todos los usuarios": el acceso directo vive acá.
+  if (process.env.PUBLIC) dirs.push(path.join(process.env.PUBLIC, 'Desktop'));
+  return dirs.map((dir) => path.join(dir, 'Hard Launcher.lnk')).filter((lnk) => fs.existsSync(lnk));
+}
+
+function applyAccentToDesktopShortcut(accent) {
+  if (process.platform !== 'win32') return;
+  let changed = false;
+  try {
+    const icon = prepareShortcutIcon(accent);
+    if (!icon) return;
+    for (const lnk of desktopShortcutPaths()) {
+      try {
+        const current = shell.readShortcutLink(lnk);
+        // Ya apunta a este ícono: no se toca (evita reescribir el acceso
+        // directo en cada arranque).
+        if (current.icon && path.resolve(current.icon).toLowerCase() === path.resolve(icon).toLowerCase()) continue;
+        if (shell.writeShortcutLink(lnk, 'update', { icon, iconIndex: 0 })) changed = true;
+      } catch (err) {
+        // Por ejemplo, el acceso directo de "todos los usuarios" sin permisos.
+        console.error('[applyAccentToDesktopShortcut] No se pudo actualizar', lnk, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[applyAccentToDesktopShortcut]', err);
+  }
+  // Sin esto el escritorio sigue mostrando el ícono viejo (caché de íconos de
+  // Windows) hasta que el Explorador se refresque solo.
+  if (changed) execFile('ie4uinit.exe', ['-show'], { windowsHide: true }, () => {});
+}
+
 // Se llama cuando el jugador cambia el acento en Ajustes > Apariencia (ver
 // ipcMain.handle('settings:update') más abajo), para que el ícono de la
 // ventana (barra de tareas/Alt+Tab/Administrador de tareas) y el de la
 // bandeja cambien de una sin necesitar reiniciar el launcher — mismo
 // criterio que ya usa discordPresence.setAccentColor para la Rich Presence.
 function applyAccentColorToIcons(accent) {
+  applyAccentToDesktopShortcut(accent);
   const iconPath = resolveAccentLogoPath(accent);
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
@@ -915,6 +986,10 @@ app.whenReady().then(() => {
   // Ícono de bandeja persistente (ver comentario arriba de createTray):
   // arranca junto con la app, no recién cuando el launcher se oculta.
   createTray();
+  // Si el acceso directo del escritorio no tiene el color del acento elegido
+  // (por ejemplo, porque una actualización lo recreó con el ícono rojo de
+  // fábrica), se corrige al arrancar. No hace nada si ya está bien.
+  applyAccentToDesktopShortcut(currentAccentColor());
   // Se dispara en paralelo a la creación de la ventana, no después: para
   // cuando el renderer termine de montar y el usuario llegue a abrir el
   // selector de cuentas, la descarga de las caras (si hacía falta, ver
@@ -1257,14 +1332,26 @@ ipcMain.handle('instances:exportWorldForServer', async (_e, id, worldPath, world
 // Importar una instancia completa desde un .hlpack que alguien más exportó
 // (ver instanceStore.importInstancePackage). El diálogo nativo vive acá por
 // la misma razón que el de arriba.
+// BUG FIX: antes este diálogo solo aceptaba paquetes propios de Hard Launcher
+// y cualquier otro .zip (modpack de CurseForge/Modrinth, instancia exportada
+// de Prism/MultiMC...) fallaba con "no es un paquete válido". Ahora el
+// formato se detecta por el contenido (ver core/archiveImporter.js) y se
+// agrega "Todos los archivos" por si el archivo tiene otra extensión.
+const IMPORT_ARCHIVE_FILTERS = [
+  { name: 'Instancias y modpacks (.zip, .mrpack, .hlpack)', extensions: ['zip', 'mrpack', 'hlpack'] },
+  { name: 'Todos los archivos', extensions: ['*'] },
+];
 ipcMain.handle('instances:importPackage', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Importar instancia',
+    title: 'Importar instancia o modpack',
     properties: ['openFile'],
-    filters: [{ name: 'Paquete de Hard Launcher', extensions: ['hlpack', 'zip'] }],
+    filters: IMPORT_ARCHIVE_FILTERS,
   });
   if (result.canceled || !result.filePaths[0]) return null;
-  return instanceStore.importInstancePackage(result.filePaths[0]);
+  // Devuelve un array: un .zip puede traer más de una instancia.
+  return archiveImporter.importArchive(result.filePaths[0], {
+    onProgress: (progress) => mainWindow.webContents.send('modrinth:installProgress', progress),
+  });
 });
 ipcMain.handle('instances:listScreenshots', (_e, id) => instanceStore.listScreenshots(id));
 ipcMain.handle('instances:deleteScreenshot', (_e, id, filePath) => instanceStore.deleteScreenshot(id, filePath));
@@ -1321,11 +1408,17 @@ ipcMain.handle('modrinth:updateAllContent', async (_e, instanceId) =>
 ipcMain.handle('modrinth:toggleContentFreeze', async (_e, instanceId, fileName, frozen) =>
   modInstaller.toggleContentFreeze(instanceId, fileName, frozen)
 );
-ipcMain.handle('modrinth:installModpack', async (_e, mrpackPath, instanceName) =>
-  modInstaller.installModpack(mrpackPath, instanceName, (progress) => {
-    mainWindow.webContents.send('modrinth:installProgress', progress);
-  })
-);
+// Se usa solo para el import manual desde disco: detecta si el archivo es un
+// .mrpack/.zip de Modrinth, un .zip de CurseForge o una instancia exportada.
+ipcMain.handle('modrinth:installModpack', async (_e, archivePath, instanceName) => {
+  const instances = await archiveImporter.importArchive(archivePath, {
+    name: instanceName,
+    onProgress: (progress) => {
+      mainWindow.webContents.send('modrinth:installProgress', progress);
+    },
+  });
+  return instances[0];
+});
 // Paso "Install modpack" → "Search for modpack": instalar directo una
 // versión encontrada en Modrinth, sin pasar por un archivo .mrpack local.
 ipcMain.handle('modrinth:installModpackFromVersion', async (_e, versionData, instanceName) =>
@@ -1336,9 +1429,12 @@ ipcMain.handle('modrinth:installModpackFromVersion', async (_e, versionData, ins
 // Paso "Install modpack" → "Import modpack": elegir un .mrpack del disco.
 ipcMain.handle('modrinth:pickMrpackFile', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Selecciona un archivo de modpack (.mrpack)',
+    title: 'Selecciona un modpack (.mrpack o .zip)',
     properties: ['openFile'],
-    filters: [{ name: 'Modpack de Modrinth', extensions: ['mrpack'] }],
+    filters: [
+      { name: 'Modpacks (.mrpack, .zip)', extensions: ['mrpack', 'zip'] },
+      { name: 'Todos los archivos', extensions: ['*'] },
+    ],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];

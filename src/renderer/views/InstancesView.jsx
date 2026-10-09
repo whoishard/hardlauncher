@@ -115,11 +115,18 @@ export default function InstancesView() {
   async function handleImport() {
     setImporting(true);
     try {
-      const instance = await window.hardLauncher.instances.importPackage();
+      const imported = await window.hardLauncher.instances.importPackage();
       // null = el jugador canceló el diálogo de "abrir archivo", no es un error.
-      if (instance) {
+      // Ahora devuelve un array: un .zip puede traer más de una instancia.
+      if (imported?.length) {
         await refreshInstances();
-        pushToast(t('instances.importSuccess', { name: instance.name }), 'success');
+        pushToast(
+          imported.length === 1
+            ? t('instances.importSuccess', { name: imported[0].name })
+            : t('create.importedMany', { n: imported.length }),
+          'success'
+        );
+        imported.forEach((i) => i.importWarnings?.forEach((w) => pushToast(w, 'error')));
       }
     } catch (e) {
       pushToast(t('instances.importFailed', { error: e.message }), 'error');

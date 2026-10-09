@@ -264,7 +264,7 @@ export const translations = {
     'explore.title': 'Explorar',
     'explore.searchPlaceholder': 'Buscar {type}...',
     'explore.modpackHint':
-      'Instalar un modpack crea una instancia nueva propia (con su ícono y todos sus complementos); el selector de instancia de arriba no aplica acá.',
+      'Instalar un modpack crea una instancia nueva propia con el nombre del modpack (con su ícono y todos sus complementos).',
     'explore.searching': 'Buscando...',
     'explore.results': '{n} resultados',
     'explore.view': 'Ver: {n}',
@@ -357,6 +357,7 @@ export const translations = {
     'create.noLaunchersDetected': 'No se detectó ningún launcher compatible instalado en esta PC.',
     'create.customFolders': 'Otras carpetas agregadas',
     'create.addPath': 'Buscar en otra carpeta...',
+    'create.importFromFile': 'Importar desde archivo (.zip, .mrpack, .hlpack)...',
     'create.noInstancesFound': 'No se encontró ninguna instancia reconocible en esta carpeta.',
     'create.importDebugTitle': 'Detalle técnico:',
     'create.instanceFoundOne': '1 instancia encontrada',
@@ -364,7 +365,7 @@ export const translations = {
     'create.selectAll': 'Seleccionar todas',
     'create.importCount': 'Importar ({n})',
     'create.importHint':
-      'Compatible con Prism Launcher, MultiMC, PolyMC, CurseForge y Modrinth App. Se copian mods, configuración, mundos, capturas, resource packs y shaders de cada instancia elegida.',
+      'Compatible con Prism Launcher, MultiMC, PolyMC, CurseForge y Modrinth App, desde carpetas o desde un .zip exportado. Se copian mods, configuración, mundos, capturas, resource packs y shaders de cada instancia elegida.',
     'create.import': 'Importar',
     'create.importedOne': 'Se importó "{name}".',
     'create.importedMany': 'Se importaron {n} instancias.',
@@ -961,7 +962,7 @@ export const translations = {
     'explore.title': 'Discover',
     'explore.searchPlaceholder': 'Search {type}...',
     'explore.modpackHint':
-      'Installing a modpack creates a brand-new instance (with its icon and all of its content); the instance picker above does not apply here.',
+      'Installing a modpack creates a brand-new instance named after the modpack (with its icon and all of its content).',
     'explore.searching': 'Searching...',
     'explore.results': '{n} results',
     'explore.view': 'Show: {n}',
@@ -1054,6 +1055,7 @@ export const translations = {
     'create.noLaunchersDetected': 'No compatible launcher was detected on this PC.',
     'create.customFolders': 'Other folders added',
     'create.addPath': 'Browse another folder...',
+    'create.importFromFile': 'Import from file (.zip, .mrpack, .hlpack)...',
     'create.noInstancesFound': 'No recognizable instance was found in this folder.',
     'create.importDebugTitle': 'Technical detail:',
     'create.instanceFoundOne': '1 instance found',
@@ -1061,7 +1063,7 @@ export const translations = {
     'create.selectAll': 'Select all',
     'create.importCount': 'Import ({n})',
     'create.importHint':
-      'Compatible with Prism Launcher, MultiMC, PolyMC, CurseForge, and Modrinth App. Mods, config, worlds, screenshots, resource packs, and shaders are copied for each instance you pick.',
+      'Compatible with Prism Launcher, MultiMC, PolyMC, CurseForge, and Modrinth App, from folders or an exported .zip. Mods, config, worlds, screenshots, resource packs, and shaders are copied for each instance you pick.',
     'create.import': 'Import',
     'create.importedOne': 'Imported "{name}".',
     'create.importedMany': 'Imported {n} instances.',
@@ -1661,7 +1663,7 @@ export const translations = {
     'explore.title': 'Explorar',
     'explore.searchPlaceholder': 'Buscar {type}...',
     'explore.modpackHint':
-      'Instalar um modpack cria uma instância nova (com o ícone e todo o conteúdo); o seletor de instância acima não se aplica aqui.',
+      'Instalar um modpack cria uma instância nova com o nome do modpack (com o ícone e todo o conteúdo).',
     'explore.searching': 'Buscando...',
     'explore.results': '{n} resultados',
     'explore.view': 'Ver: {n}',
@@ -1754,6 +1756,7 @@ export const translations = {
     'create.noLaunchersDetected': 'Nenhum launcher compatível foi detectado neste PC.',
     'create.customFolders': 'Outras pastas adicionadas',
     'create.addPath': 'Procurar em outra pasta...',
+    'create.importFromFile': 'Importar de arquivo (.zip, .mrpack, .hlpack)...',
     'create.noInstancesFound': 'Nenhuma instância reconhecível foi encontrada nesta pasta.',
     'create.importDebugTitle': 'Detalhe técnico:',
     'create.instanceFoundOne': '1 instância encontrada',
@@ -1761,7 +1764,7 @@ export const translations = {
     'create.selectAll': 'Selecionar todas',
     'create.importCount': 'Importar ({n})',
     'create.importHint':
-      'Compatível com Prism Launcher, MultiMC, PolyMC, CurseForge e Modrinth App. Mods, config, mundos, capturas, resource packs e shaders são copiados de cada instância escolhida.',
+      'Compatível com Prism Launcher, MultiMC, PolyMC, CurseForge e Modrinth App, a partir de pastas ou de um .zip exportado. Mods, config, mundos, capturas, resource packs e shaders são copiados de cada instância escolhida.',
     'create.import': 'Importar',
     'create.importedOne': 'Importou "{name}".',
     'create.importedMany': 'Importou {n} instâncias.',

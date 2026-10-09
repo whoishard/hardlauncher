@@ -418,7 +418,11 @@ export default function ExploreView() {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && doSearch(0)}
         />
-        <InstanceTargetPicker instances={instances} value={targetInstanceId} onChange={setTargetInstanceId} />
+        {/* Un modpack siempre crea su propia instancia nueva (con el nombre
+            del modpack), así que elegir una instancia destino no aplica. */}
+        {projectType !== 'modpack' && (
+          <InstanceTargetPicker instances={instances} value={targetInstanceId} onChange={setTargetInstanceId} />
+        )}
         <button className="btn-primary" onClick={() => doSearch(0)}>
           {tr('common.search')}
         </button>

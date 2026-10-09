@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const AdmZip = require('adm-zip');
+const { openZip } = require('../core/zipReader');
 const { downloadFile, downloadQueue } = require('../core/versionManager');
 const instanceStore = require('../store/instanceStore');
 const modrinthApi = require('./modrinthApi');
@@ -387,11 +387,22 @@ async function buildModpackContent(files) {
  * un .mrpack importado a mano no hay forma de conocerlo de antemano).
  */
 async function installModpack(mrpackPath, instanceName, onProgress, opts = {}) {
-  const zip = new AdmZip(mrpackPath);
-  const indexEntry = zip.getEntry('modrinth.index.json');
-  if (!indexEntry) throw new Error('El archivo .mrpack no contiene un modrinth.index.json válido.');
+  // El .zip se lee por streaming (ver core/zipReader.js): adm-zip descomprimía
+  // cada archivo entero en memoria y los modpacks con overrides grandes
+  // fallaban con "Array buffer allocation failed".
+  const zip = openZip(mrpackPath);
+  // BUG FIX: antes solo se aceptaba modrinth.index.json en la raíz exacta
+  // del archivo. Un .mrpack reempaquetado como .zip (o comprimido desde el
+  // explorador de archivos) suele traer todo dentro de UNA carpeta raíz, y
+  // eso se rechazaba como "inválido". Ahora se acepta en la raíz o a un
+  // nivel, y los overrides se buscan bajo esa misma carpeta.
+  const indexEntry =
+    zip.entries.find((e) => e.name.toLowerCase() === 'modrinth.index.json') ||
+    zip.entries.find((e) => /^[^/]+\/modrinth\.index\.json$/i.test(e.name));
+  if (!indexEntry) throw new Error('El archivo no contiene un modrinth.index.json válido.');
+  const basePrefix = indexEntry.name.replace(/modrinth\.index\.json$/i, '');
 
-  const index = JSON.parse(zip.readAsText(indexEntry));
+  const index = JSON.parse((await zip.readBuffer(indexEntry)).toString('utf8').replace(/^\uFEFF/, ''));
   const mcVersion = index.dependencies.minecraft;
   const loader = Object.keys(index.dependencies).find((k) => k !== 'minecraft') || 'vanilla';
   const loaderVersion = index.dependencies[loader];
@@ -427,15 +438,20 @@ async function installModpack(mrpackPath, instanceName, onProgress, opts = {}) {
   );
 
   // Overrides: archivos de configuración incluidos directamente en el .mrpack.
-  const overridesPrefix = 'overrides/';
-  zip.getEntries().forEach((entry) => {
-    if (entry.entryName.startsWith(overridesPrefix) && !entry.isDirectory) {
-      const relative = entry.entryName.substring(overridesPrefix.length);
-      const dest = path.join(instance.dir, relative);
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(dest, entry.getData());
-    }
-  });
+  // "client-overrides/" también es parte de la especificación (archivos solo
+  // para el cliente) y antes se ignoraba por completo.
+  const overridesPrefixes = [`${basePrefix}overrides/`, `${basePrefix}client-overrides/`];
+  const instanceRoot = path.resolve(instance.dir);
+  for (const entry of zip.entries) {
+    if (entry.isDirectory) continue;
+    const prefix = overridesPrefixes.find((p) => entry.name.startsWith(p));
+    if (!prefix) continue;
+    const relative = entry.name.substring(prefix.length);
+    const dest = path.resolve(instanceRoot, relative);
+    // Evita que una entrada tipo "overrides/../../algo" escriba fuera de la instancia.
+    if (!relative || !dest.startsWith(instanceRoot + path.sep)) continue;
+    await zip.extractTo(entry, dest);
+  }
 
   onProgress?.({ stage: 'resolving', project: instance.name });
   const content = await buildModpackContent(index.files);

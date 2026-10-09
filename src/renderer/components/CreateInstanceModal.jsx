@@ -550,6 +550,8 @@ function ModpackStep({ onClose, onBack, onCreated }) {
       setImportingFile(true);
       const instance = await window.hardLauncher.modrinth.installModpack(filePath, null);
       pushToast(t('create.installed', { title: instance.name }), 'success');
+      // Modpacks de CurseForge: si algún mod no se pudo bajar, se avisa.
+      instance.importWarnings?.forEach((w) => pushToast(w, 'error'));
       onCreated(instance?.id);
     } catch (e) {
       setError(t('create.importFailed', { error: e.message }));
@@ -891,6 +893,28 @@ function ImportStep({ onClose, onBack, onCreated }) {
     }
   }
 
+  // Importar directo desde un archivo (.zip / .mrpack / .hlpack): el formato
+  // se detecta por el contenido, no por la extensión. Antes este paso solo
+  // permitía elegir CARPETAS, así que un .zip exportado nunca se podía elegir.
+  async function importFromFile() {
+    setImporting(true);
+    setError('');
+    try {
+      const imported = await window.hardLauncher.instances.importPackage();
+      if (!imported?.length) return; // el jugador canceló el diálogo
+      pushToast(
+        imported.length === 1 ? t('create.importedOne', { name: imported[0].name }) : t('create.importedMany', { n: imported.length }),
+        'success'
+      );
+      imported.forEach((i) => i.importWarnings?.forEach((w) => pushToast(w, 'error')));
+      onCreated(imported[0].id);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function handleImport() {
     if (checked.size === 0) return;
     setImporting(true);
@@ -971,9 +995,13 @@ function ImportStep({ onClose, onBack, onCreated }) {
             </div>
           )}
 
-          <button type="button" className="btn-secondary btn-icon-label" style={{ width: '100%' }} onClick={pickCustomFolder} disabled={scanningCustom}>
+          <button type="button" className="btn-secondary btn-icon-label" style={{ width: '100%' }} onClick={pickCustomFolder} disabled={scanningCustom || importing}>
             <Icon name="plus" size={13} />
             {scanningCustom ? t('create.detecting') : t('create.addPath')}
+          </button>
+          <button type="button" className="btn-secondary btn-icon-label" style={{ width: '100%', marginTop: 8 }} onClick={importFromFile} disabled={scanningCustom || importing}>
+            <Icon name="download" size={13} />
+            {importing ? t('create.importing') : t('create.importFromFile')}
           </button>
 
           <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, marginBottom: 0 }}>{t('create.importHint')}</p>
