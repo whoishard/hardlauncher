@@ -1,8 +1,17 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // Puente seguro entre el proceso principal (Node) y el renderer (React).
 // El renderer NUNCA tiene acceso directo a Node/fs; todo pasa por aquí.
 contextBridge.exposeInMainWorld('hardLauncher', {
+  // Ruta absoluta de un File soltado con drag & drop. File.path se eliminó en
+  // Electron >= 32; webUtils.getPathForFile es la forma soportada.
+  getPathForFile: (file) => {
+    try {
+      return webUtils?.getPathForFile ? webUtils.getPathForFile(file) : file?.path || '';
+    } catch {
+      return file?.path || '';
+    }
+  },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     toggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),
@@ -207,10 +216,24 @@ contextBridge.exposeInMainWorld('hardLauncher', {
     pickLauncherFolder: () => ipcRenderer.invoke('instances:pickLauncherFolder'),
     scanLauncherFolder: (folderPath) => ipcRenderer.invoke('instances:scanLauncherFolder', folderPath),
     importSelected: (instanceDirs) => ipcRenderer.invoke('instances:importSelected', instanceDirs),
+    // Versiones "en segundo plano" (devuelven el job al instante; ver jobs.*).
+    startImportPackage: () => ipcRenderer.invoke('instances:startImportPackage'),
+    startImportSelected: (instanceDirs, title) => ipcRenderer.invoke('instances:startImportSelected', instanceDirs, title),
     onImportProgress: (cb) => {
       const listener = (_e, data) => cb(data);
       ipcRenderer.on('instances:importProgress', listener);
       return () => ipcRenderer.removeListener('instances:importProgress', listener);
+    },
+  },
+  // Tareas de importación/instalación en segundo plano (ver core/importJobs.js).
+  jobs: {
+    list: () => ipcRenderer.invoke('jobs:list'),
+    dismiss: (id) => ipcRenderer.invoke('jobs:dismiss', id),
+    clearFinished: () => ipcRenderer.invoke('jobs:clearFinished'),
+    onUpdate: (cb) => {
+      const listener = (_e, job) => cb(job);
+      ipcRenderer.on('jobs:update', listener);
+      return () => ipcRenderer.removeListener('jobs:update', listener);
     },
   },
   versions: {
@@ -244,6 +267,9 @@ contextBridge.exposeInMainWorld('hardLauncher', {
     installModpackFromVersion: (versionData, name) =>
       ipcRenderer.invoke('modrinth:installModpackFromVersion', versionData, name),
     pickMrpackFile: () => ipcRenderer.invoke('modrinth:pickMrpackFile'),
+    startInstallModpack: (archivePath, name) => ipcRenderer.invoke('modrinth:startInstallModpack', archivePath, name),
+    startInstallModpackFromVersion: (versionData, name) =>
+      ipcRenderer.invoke('modrinth:startInstallModpackFromVersion', versionData, name),
     // Cada "on*" devuelve una función de limpieza: el componente React que se
     // suscribe DEBE llamarla en su cleanup (return del useEffect), o cada vez
     // que el componente se remonte quedará otro listener duplicado escuchando

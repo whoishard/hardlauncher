@@ -1,5 +1,6 @@
 const { spawn, exec } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const os = require('os');
 
 const versionManager = require('./versionManager');
@@ -117,6 +118,84 @@ function extractArgs(argsField, values, features) {
 }
 
 /**
+ * Clave estable de una librería (grupo/artefacto + clasificador, sin versión)
+ * a partir de su ruta Maven, para que la versión de Forge reemplace a la
+ * vanilla cuando las dos traen la misma librería (ej. asm, guava) en vez de
+ * quedar las dos en el classpath con versiones distintas.
+ */
+function libraryKey(libPath) {
+  const file = path.basename(libPath);
+  const versionDir = path.dirname(libPath);
+  const version = path.basename(versionDir);
+  const artifactDir = path.dirname(versionDir);
+  const artifact = path.basename(artifactDir);
+  const suffix = file.startsWith(`${artifact}-${version}`) ? file.slice(`${artifact}-${version}`.length) : file;
+  return `${artifactDir}|${suffix}`;
+}
+
+/** Ruta Maven ("group:artifact:version[:classifier][@ext]") -> "group/artifact/version/artifact-version[-classifier].ext". */
+function mavenPathFromName(name) {
+  const [coords, ext = 'jar'] = String(name).split('@');
+  const [group, artifact, version, classifier] = coords.split(':');
+  if (!group || !artifact || !version) return null;
+  const file = `${artifact}-${version}${classifier ? `-${classifier}` : ''}.${ext}`;
+  return `${group.replace(/\./g, '/')}/${artifact}/${version}/${file}`;
+}
+
+/**
+ * Devuelve las rutas absolutas de las librerías del perfil de Forge/NeoForge.
+ * El instalador ya las deja descargadas/generadas en /libraries; si falta
+ * alguna que sí trae URL se descarga acá.
+ */
+async function resolveLoaderLibraries(profile, gameRoot, onProgress) {
+  const librariesDir = path.join(gameRoot, 'libraries');
+  const out = [];
+  for (const lib of profile.libraries || []) {
+    if (lib.rules && !versionManager.libraryAllowed(lib)) continue;
+    const artifact = lib.downloads?.artifact;
+    const rel = artifact?.path || mavenPathFromName(lib.name);
+    if (!rel) continue;
+    const dest = path.join(librariesDir, rel);
+    if (!fs.existsSync(dest)) {
+      const url = artifact?.url || (lib.url ? `${lib.url.replace(/\/?$/, '/')}${rel}` : '');
+      if (!url) continue; // lo genera un procesador del instalador, o no aplica a este perfil
+      try {
+        await versionManager.downloadFile(url, dest, artifact?.sha1 || null, onProgress);
+      } catch {
+        continue;
+      }
+    }
+    out.push(dest);
+  }
+  return out;
+}
+
+/**
+ * Instala (si hace falta) Forge/NeoForge para la instancia y devuelve su
+ * perfil ya listo para fusionar con el vanilla. Guarda en la instancia la
+ * versión resuelta si no tenía una (ej. modpacks importados sin loaderVersion).
+ */
+async function prepareForgeLike(instance, javaBin, gameRoot, onProgress, onLog) {
+  onProgress?.({ stage: 'loader' });
+  onLog?.(`[Hard Launcher] Verificando ${instance.loader} ${instance.loaderVersion || '(última recomendada)'}...`);
+  const result = await loaderManager.installForgeLike(
+    instance.loader,
+    instance.mcVersion,
+    instance.loaderVersion,
+    javaBin,
+    (data) => {
+      if (data?.log) onLog?.(data.log);
+      else onProgress?.(data);
+    }
+  );
+  if (result.loaderVersion && result.loaderVersion !== instance.loaderVersion) {
+    instanceStore.updateInstance(instance.id, { loaderVersion: result.loaderVersion });
+  }
+  const libraries = await resolveLoaderLibraries(result.profile, gameRoot, onProgress);
+  return { profile: result.profile, libraries, versionId: result.versionId };
+}
+
+/**
  * Construye el comando completo de lanzamiento. Es la pieza central que
  * diferencia Offline Mode (no-premium) de Online Mode (premium):
  * ambos generan los mismos flags --username/--uuid/--accessToken, pero
@@ -142,6 +221,22 @@ async function buildLaunchCommand(instance, account, installResult, javaBin, dir
 
   const finalClasspath = [...classpath];
   let mainClass = versionDetails.mainClass;
+  const loaderProfile = installResult.loaderProfile || null;
+
+  // Forge/NeoForge: sus librerías reemplazan a las vanilla de igual nombre y
+  // el resto se agrega al final; su mainClass pasa a ser la del juego.
+  if (loaderProfile) {
+    const byKey = new Map(finalClasspath.map((p, i) => [libraryKey(p), i]));
+    for (const lib of installResult.loaderLibraries) {
+      const key = libraryKey(lib);
+      if (byKey.has(key)) finalClasspath[byKey.get(key)] = lib;
+      else {
+        byKey.set(key, finalClasspath.length);
+        finalClasspath.push(lib);
+      }
+    }
+    if (loaderProfile.mainClass) mainClass = loaderProfile.mainClass;
+  }
 
   // Fusiona con el perfil del loader si la instancia no es vanilla.
   if (instance.loader === 'fabric' || instance.loader === 'quilt') {
@@ -166,8 +261,7 @@ async function buildLaunchCommand(instance, account, installResult, javaBin, dir
     finalClasspath.push(...loaderData.extraLibraries);
     mainClass = loaderData.mainClass;
   }
-  // Forge/NeoForge devuelven un versionId propio ya resuelto en instanceStore
-  // en el momento de la instalación (ver loaderManager.installForgeLike).
+  // Forge/NeoForge se instalan y fusionan arriba (ver prepareForgeLike y loaderProfile).
 
   const values = {
     auth_player_name: account.username,
@@ -184,6 +278,9 @@ async function buildLaunchCommand(instance, account, installResult, javaBin, dir
     launcher_name: 'Hard Launcher',
     launcher_version: '1.0.0',
     classpath: finalClasspath.join(CLASSPATH_SEPARATOR),
+    // Los usa el perfil moderno de Forge/NeoForge (-p, -DlibraryDirectory...).
+    library_directory: path.join(gameRoot, 'libraries'),
+    classpath_separator: CLASSPATH_SEPARATOR,
     auth_xuid: account.xuid || '0',
     clientid: account.clientId || '00000000-0000-0000-0000-000000000000',
     resolution_width: resolutionWidth,
@@ -236,13 +333,20 @@ async function buildLaunchCommand(instance, account, installResult, javaBin, dir
     is_quick_play_realms: false,
   };
 
-  const jvmArgsFromVersion = extractArgs(versionDetails.arguments?.jvm, values, features);
-  const gameArgsFromVersion = extractArgs(versionDetails.arguments?.game, values, features);
+  const jvmArgsFromVersion = [
+    ...extractArgs(versionDetails.arguments?.jvm, values, features),
+    ...extractArgs(loaderProfile?.arguments?.jvm, values, features),
+  ];
+  const gameArgsFromVersion = [
+    ...extractArgs(versionDetails.arguments?.game, values, features),
+    ...extractArgs(loaderProfile?.arguments?.game, values, features),
+  ];
 
-  // Compatibilidad con JSONs antiguos (<1.13) que no usan "arguments" sino "minecraftArguments".
-  const legacyGameArgs = versionDetails.minecraftArguments
-    ? resolvePlaceholders(versionDetails.minecraftArguments, values).split(' ')
-    : [];
+  // Compatibilidad con JSONs antiguos (<1.13) que no usan "arguments" sino
+  // "minecraftArguments". En Forge antiguo (<=1.12) los suyos reemplazan a los
+  // vanilla (ya incluyen --tweakClass ...).
+  const legacyArgString = loaderProfile?.minecraftArguments || versionDetails.minecraftArguments;
+  const legacyGameArgs = legacyArgString ? resolvePlaceholders(legacyArgString, values).split(' ') : [];
 
   // Pestaña "Java y memoria" → "Custom Java arguments": si no está activada,
   // no se aplican argumentos JVM guardados de una edición previa.
@@ -298,7 +402,6 @@ async function buildLaunchCommand(instance, account, installResult, javaBin, dir
  */
 function applyFullscreenOption(instanceDir, fullscreen) {
   if (!fullscreen) return;
-  const fs = require('fs');
   const optionsPath = path.join(instanceDir, 'options.txt');
   let lines = [];
   if (fs.existsSync(optionsPath)) {
@@ -354,6 +457,15 @@ async function launch(instance, account, hooks = {}, directConnect = null, quick
   const javaBin = await javaManager.ensureJavaForVersion(installResult.versionDetails, onProgress, instanceJavaPath);
 
   onLog?.(`[Hard Launcher] Usando Java: ${javaBin}`);
+
+  // Forge/NeoForge: sin esto el juego arrancaba como vanilla y no cargaba ningún mod.
+  if (instance.loader === 'forge' || instance.loader === 'neoforge') {
+    const prepared = await prepareForgeLike(instance, javaBin, installResult.gameRoot, onProgress, onLog);
+    installResult.loaderProfile = prepared.profile;
+    installResult.loaderLibraries = prepared.libraries;
+    onLog?.(`[Hard Launcher] Usando ${prepared.versionId}.`);
+    instance = instanceStore.getInstance(instance.id) || instance;
+  }
   onLog?.(
     `[Hard Launcher] Cuenta activa: ${account.username} (${account.type === 'premium' ? 'Premium/Microsoft' : 'No-Premium/Offline'})`
   );
@@ -464,7 +576,10 @@ async function repairInstance(instance, onProgress, onLog) {
   }
 
   const instanceJavaPath = instance.customJava ? instance.javaPath : null;
-  await javaManager.ensureJavaForVersion(installResult.versionDetails, onProgress, instanceJavaPath);
+  const javaBin = await javaManager.ensureJavaForVersion(installResult.versionDetails, onProgress, instanceJavaPath);
+  if (instance.loader === 'forge' || instance.loader === 'neoforge') {
+    await prepareForgeLike(instance, javaBin, installResult.gameRoot, onProgress, onLog);
+  }
   onLog?.('[Hard Launcher] Reparación completa.');
 }
 

@@ -131,6 +131,10 @@ async function ensureVersionInstalled(versionId, onProgress) {
   const versionDir = path.join(root, 'versions', versionId);
   fs.mkdirSync(versionDir, { recursive: true });
 
+  // El instalador de Forge/NeoForge lee el JSON vanilla de versions/<mc>/<mc>.json
+  // (igual que deja el launcher oficial), así que se guarda junto al client.jar.
+  fs.writeFileSync(path.join(versionDir, `${versionId}.json`), JSON.stringify(versionDetails));
+
   // 1) client.jar
   const clientJarPath = path.join(versionDir, `${versionId}.jar`);
   await downloadFile(
@@ -218,4 +222,5 @@ module.exports = {
   ensureVersionInstalled,
   downloadFile,
   downloadQueue,
+  libraryAllowed,
 };

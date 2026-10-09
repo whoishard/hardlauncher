@@ -7,6 +7,8 @@ import Select from './Select.jsx';
 import Icon from './Icon.jsx';
 import InstanceIconPicker from './InstanceIconPicker.jsx';
 import { LoaderGlyph, LOADER_BADGES } from './InstanceIcon.jsx';
+import ImportJobCard from './ImportJobCard.jsx';
+import { useJobsStore } from '../jobsStore.js';
 import { composeIconDataUrl, BACKGROUND_SWATCHES, RUBY_COLOR_SWATCHES } from './iconStudioData.js';
 import prismLogo from '../assets/launchers/prism.webp';
 import multimcLogo from '../assets/launchers/multimc.png';
@@ -118,16 +120,101 @@ const TYPE_OPTIONS = [
  */
 export default function CreateInstanceModal({ onClose, onCreated }) {
   const [step, setStep] = useState('type');
+  // Importación/instalación en curso que este asistente está mostrando. El
+  // trabajo real corre en el proceso principal (ver core/importJobs.js), así
+  // que cerrar el modal NO lo cancela: sigue en el panel flotante global.
+  const [jobId, setJobId] = useState(null);
+  const job = useJobsStore((s) => s.jobs.find((j) => j.id === jobId));
+  const setWatched = useJobsStore((s) => s.setWatched);
+
+  useEffect(() => {
+    setWatched(jobId);
+    return () => setWatched(null);
+  }, [jobId]);
 
   return (
     <motion.div className="modal-overlay" onClick={onClose} {...modalOverlayMotion}>
       <motion.div className="card modal-card instance-modal" onClick={(e) => e.stopPropagation()} {...modalCardMotion}>
-        {step === 'type' && <TypeStep onClose={onClose} onPick={setStep} />}
-        {step === 'custom' && <CustomSetupStep onClose={onClose} onBack={() => setStep('type')} onCreated={onCreated} />}
-        {step === 'modpack' && <ModpackStep onClose={onClose} onBack={() => setStep('type')} onCreated={onCreated} />}
-        {step === 'import' && <ImportStep onClose={onClose} onBack={() => setStep('type')} onCreated={onCreated} />}
+        {jobId && (
+          <JobStep
+            job={job}
+            onClose={onClose}
+            onOpen={(id) => onCreated(id)}
+            onReset={() => {
+              if (jobId) useJobsStore.getState().dismiss(jobId);
+              setJobId(null);
+            }}
+          />
+        )}
+        {!jobId && step === 'type' && <TypeStep onClose={onClose} onPick={setStep} />}
+        {!jobId && step === 'custom' && <CustomSetupStep onClose={onClose} onBack={() => setStep('type')} onCreated={onCreated} />}
+        {!jobId && step === 'modpack' && (
+          <ModpackStep onClose={onClose} onBack={() => setStep('type')} onCreated={onCreated} onJobStarted={setJobId} />
+        )}
+        {!jobId && step === 'import' && (
+          <ImportStep onClose={onClose} onBack={() => setStep('type')} onCreated={onCreated} onJobStarted={setJobId} />
+        )}
       </motion.div>
     </motion.div>
+  );
+}
+
+/** Registra el job que devolvió el proceso principal y se lo pasa al asistente para seguirlo. */
+function trackJob(job, onJobStarted) {
+  useJobsStore.getState().adopt(job);
+  onJobStarted(job.id);
+}
+
+/**
+ * Vista de progreso de una importación dentro del asistente: muestra el
+ * avance en vivo y deja cerrar la ventana sin cortar nada ("Continuar en
+ * segundo plano"). Al terminar ofrece abrir la instancia creada.
+ */
+function JobStep({ job, onClose, onOpen, onReset }) {
+  const t = useT();
+  if (!job) {
+    // Descartado desde otro lado: no queda nada que mostrar.
+    return (
+      <>
+        <ModalHeader title={t('create.title')} onClose={onClose} />
+        <button className="btn-secondary" onClick={onClose}>{t('common.close')}</button>
+      </>
+    );
+  }
+  const running = job.status === 'running';
+  return (
+    <>
+      <ModalHeader title={job.instanceName || job.title} subtitle={t('jobs.modalSubtitle')} onClose={onClose} />
+      <ImportJobCard job={job} />
+      {running && <p className="import-job-hint">{t('jobs.backgroundHint')}</p>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        {running && (
+          <button className="btn-primary btn-icon-label" style={{ flex: 1 }} onClick={onClose}>
+            <Icon name="download" size={14} />
+            {t('jobs.background')}
+          </button>
+        )}
+        {job.status === 'done' && (
+          <>
+            <button className="btn-secondary" onClick={onClose}>{t('common.close')}</button>
+            {job.instanceId && (
+              <button className="btn-primary" style={{ flex: 1 }} onClick={() => onOpen(job.instanceId)}>
+                {t('jobs.open')}
+              </button>
+            )}
+          </>
+        )}
+        {job.status === 'error' && (
+          <>
+            <button className="btn-secondary btn-icon-label" onClick={onReset}>
+              <Icon name="arrowLeft" size={14} />
+              {t('common.back')}
+            </button>
+            <button className="btn-secondary" onClick={onClose}>{t('common.close')}</button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -434,7 +521,7 @@ function CustomSetupStep({ onClose, onBack, onCreated }) {
 // Paso 2b: Install modpack
 // ---------------------------------------------------------------------------
 
-function ModpackStep({ onClose, onBack, onCreated }) {
+function ModpackStep({ onClose, onBack, onCreated, onJobStarted }) {
   const t = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const navigate = useNavigate();
@@ -532,9 +619,10 @@ function ModpackStep({ onClose, onBack, onCreated }) {
     setInstallingId(version.id);
     setError('');
     try {
-      const instance = await window.hardLauncher.modrinth.installModpackFromVersion(version, pickedHit.title);
-      pushToast(t('create.installed', { title: pickedHit.title }), 'success');
-      onCreated(instance?.id);
+      // Arranca en segundo plano y devuelve el job al instante: el avance se
+      // ve en el asistente (o en el panel global si se cierra).
+      const job = await window.hardLauncher.modrinth.startInstallModpackFromVersion(version, pickedHit.title);
+      trackJob(job, onJobStarted);
     } catch (e) {
       setError(t('create.installFailed', { error: e.message }));
     } finally {
@@ -548,11 +636,8 @@ function ModpackStep({ onClose, onBack, onCreated }) {
       const filePath = await window.hardLauncher.modrinth.pickMrpackFile();
       if (!filePath) return;
       setImportingFile(true);
-      const instance = await window.hardLauncher.modrinth.installModpack(filePath, null);
-      pushToast(t('create.installed', { title: instance.name }), 'success');
-      // Modpacks de CurseForge: si algún mod no se pudo bajar, se avisa.
-      instance.importWarnings?.forEach((w) => pushToast(w, 'error'));
-      onCreated(instance?.id);
+      const job = await window.hardLauncher.modrinth.startInstallModpack(filePath, null);
+      trackJob(job, onJobStarted);
     } catch (e) {
       setError(t('create.importFailed', { error: e.message }));
     } finally {
@@ -832,7 +917,7 @@ function folderLabel(p) {
  * traer — en vez del flujo anterior, que traía TODO lo que hubiera bajo la
  * carpeta sin poder elegir.
  */
-function ImportStep({ onClose, onBack, onCreated }) {
+function ImportStep({ onClose, onBack, onCreated, onJobStarted }) {
   const t = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const [detecting, setDetecting] = useState(true);
@@ -900,14 +985,9 @@ function ImportStep({ onClose, onBack, onCreated }) {
     setImporting(true);
     setError('');
     try {
-      const imported = await window.hardLauncher.instances.importPackage();
-      if (!imported?.length) return; // el jugador canceló el diálogo
-      pushToast(
-        imported.length === 1 ? t('create.importedOne', { name: imported[0].name }) : t('create.importedMany', { n: imported.length }),
-        'success'
-      );
-      imported.forEach((i) => i.importWarnings?.forEach((w) => pushToast(w, 'error')));
-      onCreated(imported[0].id);
+      const job = await window.hardLauncher.instances.startImportPackage();
+      if (!job) return; // el jugador canceló el diálogo
+      trackJob(job, onJobStarted);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -920,14 +1000,8 @@ function ImportStep({ onClose, onBack, onCreated }) {
     setImporting(true);
     setError('');
     try {
-      const imported = await window.hardLauncher.instances.importSelected(Array.from(checked));
-      if (imported.length > 0) {
-        pushToast(
-          imported.length === 1 ? t('create.importedOne', { name: imported[0].name }) : t('create.importedMany', { n: imported.length }),
-          'success'
-        );
-        onCreated(imported[0].id);
-      }
+      const job = await window.hardLauncher.instances.startImportSelected(Array.from(checked), activeSource?.name);
+      trackJob(job, onJobStarted);
     } catch (e) {
       setError(e.message);
     } finally {

@@ -30,6 +30,7 @@ const loaderManager = require('../src/core/loaderManager');
 const launcher = require('../src/core/launcher');
 const launcherImporter = require('../src/core/launcherImporter');
 const archiveImporter = require('../src/core/archiveImporter');
+const importJobs = require('../src/core/importJobs');
 const modrinthApi = require('../src/api/modrinthApi');
 const modInstaller = require('../src/api/modInstaller');
 const serverListStore = require('../src/store/serverListStore');
@@ -1500,6 +1501,7 @@ ipcMain.handle('instances:importFiles', async (_e, id, relativePath) => {
   const instance = instanceStore.getInstance(id);
   if (!instance) throw new Error('Instancia no encontrada.');
   const targetDir = instanceStore.resolveInstancePath(instance, relativePath);
+  fs.mkdirSync(targetDir, { recursive: true });
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Selecciona archivos para agregar',
     defaultPath: targetDir,
@@ -1525,6 +1527,7 @@ ipcMain.handle('instances:importFilesFromPaths', async (_e, id, relativePath, fi
   const instance = instanceStore.getInstance(id);
   if (!instance) throw new Error('Instancia no encontrada.');
   const targetDir = instanceStore.resolveInstancePath(instance, relativePath);
+  fs.mkdirSync(targetDir, { recursive: true });
   const copied = [];
   for (const filePath of filePaths) {
     try {
@@ -1601,6 +1604,59 @@ ipcMain.handle('instances:scanLauncherFolder', async (_e, folderPath) => launche
 ipcMain.handle('instances:importSelected', async (_e, instanceDirs) =>
   launcherImporter.importSelectedInstances(instanceDirs, (progress) => {
     mainWindow.webContents.send('instances:importProgress', progress);
+  })
+);
+
+
+// ---------- IPC: Importaciones en segundo plano ----------
+// Cada importación/instalación de instancia o modpack corre como un "job" del
+// proceso principal (ver core/importJobs.js): el handler devuelve su
+// snapshot de inmediato y el trabajo sigue aunque se cierre el modal que lo
+// pidió. El renderer sigue el avance con 'jobs:update' / 'jobs:list'.
+importJobs.setBroadcaster((job) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('jobs:update', job);
+});
+ipcMain.handle('jobs:list', () => importJobs.list());
+ipcMain.handle('jobs:dismiss', (_e, id) => importJobs.dismiss(id));
+ipcMain.handle('jobs:clearFinished', () => importJobs.clearFinished());
+
+// Elegir un archivo (.zip/.mrpack/.hlpack) e importarlo en segundo plano.
+ipcMain.handle('instances:startImportPackage', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Importar instancia o modpack',
+    properties: ['openFile'],
+    filters: IMPORT_ARCHIVE_FILTERS,
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  const archivePath = result.filePaths[0];
+  return importJobs.startJob({
+    kind: 'archive',
+    title: path.basename(archivePath).replace(/\.(zip|mrpack|hlpack)$/i, ''),
+    run: (report) => archiveImporter.importArchive(archivePath, { onProgress: report }),
+  });
+});
+// Importar las instancias tildadas de otros launchers.
+ipcMain.handle('instances:startImportSelected', (_e, instanceDirs, title) =>
+  importJobs.startJob({
+    kind: 'launchers',
+    title: title || `${instanceDirs.length} instancia${instanceDirs.length === 1 ? '' : 's'}`,
+    run: (report) => launcherImporter.importSelectedInstances(instanceDirs, report),
+  })
+);
+// Instalar un .mrpack/.zip ya elegido del disco.
+ipcMain.handle('modrinth:startInstallModpack', (_e, archivePath, instanceName) =>
+  importJobs.startJob({
+    kind: 'archive',
+    title: instanceName || path.basename(archivePath).replace(/\.(zip|mrpack|hlpack)$/i, ''),
+    run: (report) => archiveImporter.importArchive(archivePath, { name: instanceName, onProgress: report }),
+  })
+);
+// Instalar la versión de un modpack elegida en la búsqueda de Modrinth.
+ipcMain.handle('modrinth:startInstallModpackFromVersion', (_e, versionData, instanceName) =>
+  importJobs.startJob({
+    kind: 'modpack',
+    title: instanceName || versionData?.name || 'Modpack',
+    run: (report) => modInstaller.installModpackFromVersion(versionData, instanceName, report),
   })
 );
 

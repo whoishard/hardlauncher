@@ -7,6 +7,7 @@ import CreateInstanceModal from '../components/CreateInstanceModal.jsx';
 import InstanceIcon, { LOADER_BADGES } from '../components/InstanceIcon.jsx';
 import InstanceOptionsMenu from '../components/InstanceOptionsMenu.jsx';
 import Icon from '../components/Icon.jsx';
+import { useJobsStore } from '../jobsStore.js';
 
 const staggerContainer = {
   hidden: {},
@@ -115,18 +116,13 @@ export default function InstancesView() {
   async function handleImport() {
     setImporting(true);
     try {
-      const imported = await window.hardLauncher.instances.importPackage();
+      // Corre en segundo plano: el avance se ve en el panel de importaciones
+      // (abajo a la derecha) y la lista se actualiza sola al crearse la instancia.
+      const job = await window.hardLauncher.instances.startImportPackage();
       // null = el jugador canceló el diálogo de "abrir archivo", no es un error.
-      // Ahora devuelve un array: un .zip puede traer más de una instancia.
-      if (imported?.length) {
-        await refreshInstances();
-        pushToast(
-          imported.length === 1
-            ? t('instances.importSuccess', { name: imported[0].name })
-            : t('create.importedMany', { n: imported.length }),
-          'success'
-        );
-        imported.forEach((i) => i.importWarnings?.forEach((w) => pushToast(w, 'error')));
+      if (job) {
+        useJobsStore.getState().adopt(job);
+        pushToast(t('jobs.started'), 'info');
       }
     } catch (e) {
       pushToast(t('instances.importFailed', { error: e.message }), 'error');

@@ -23,6 +23,7 @@ const PROGRESS_STAGE_KEY = {
   assets: 'progress.assets',
   libraries: 'progress.libraries',
   'java-runtime': 'progress.java',
+  loader: 'progress.loader',
 };
 
 const TAB_IDS = ['content', 'files', 'worlds', 'screenshots', 'console'];
@@ -383,8 +384,12 @@ export default function InstanceDetailView() {
           >
             <ProgressBar
               label={progress.stage in PROGRESS_STAGE_KEY ? t(PROGRESS_STAGE_KEY[progress.stage]) : t('progress.preparing')}
-              percent={progress.total ? (progress.completed / progress.total) * 100 : null}
-              hint={progress.total ? `${progress.completed} / ${progress.total}` : undefined}
+              percent={
+                progress.total
+                  ? ((progress.completed ?? progress.downloaded ?? 0) / progress.total) * 100
+                  : null
+              }
+              hint={progress.total && progress.completed != null ? `${progress.completed} / ${progress.total}` : undefined}
             />
           </motion.div>
         )}
@@ -1215,7 +1220,7 @@ function FilesTab({ instanceId, pushToast }) {
     // normal) con la ruta absoluta en disco del archivo soltado — es lo que
     // necesita el proceso principal para copiarlo, a diferencia de un
     // <input type="file"> normal donde alcanzaría con leer el Blob.
-    const filePaths = files.map((f) => f.path).filter(Boolean);
+    const filePaths = files.map((f) => window.hardLauncher.getPathForFile?.(f) || f.path).filter(Boolean);
     if (filePaths.length === 0) return;
     setUploading(true);
     try {
@@ -1262,7 +1267,7 @@ function FilesTab({ instanceId, pushToast }) {
     dragCounter.current = 0;
     setDragOver(false);
     const files = Array.from(e.dataTransfer.files || []);
-    const filePaths = files.map((f) => f.path).filter(Boolean);
+    const filePaths = files.map((f) => window.hardLauncher.getPathForFile?.(f) || f.path).filter(Boolean);
     if (filePaths.length === 0) return;
     setUploading(true);
     try {
@@ -1763,7 +1768,7 @@ function WorldsTab({ instanceId, pushToast, refreshSignal, onPlayWorld }) {
     dragCounter.current = 0;
     setDragOver(false);
     const files = Array.from(e.dataTransfer.files || []);
-    const filePaths = files.map((f) => f.path).filter(Boolean);
+    const filePaths = files.map((f) => window.hardLauncher.getPathForFile?.(f) || f.path).filter(Boolean);
     if (filePaths.length === 0) return;
 
     setImporting(true);

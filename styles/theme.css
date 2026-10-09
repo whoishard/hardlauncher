@@ -243,7 +243,7 @@ h1, h2, h3, h4 {
    instalación (InstallProgressToast) y el overlay de Ajustes
    (SettingsModal), que por lo mismo motivo tampoco debería quedar
    "achicado" adentro del layout en vez de cubrir toda la ventana. */
-.app-root > *:not(.ambient-bg):not(.toast-container):not(.install-progress-toast):not(.update-toast):not(.modal-overlay) {
+.app-root > *:not(.ambient-bg):not(.toast-container):not(.install-progress-toast):not(.update-toast):not(.jobs-panel):not(.modal-overlay) {
   position: relative;
   z-index: 1;
 }
@@ -6311,3 +6311,141 @@ input:focus, select:focus { outline: none; border-color: var(--accent-primary); 
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* --- Importaciones/instalaciones en segundo plano (ImportJobsPanel / ImportJobCard) --- */
+.jobs-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 340px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  z-index: 480;
+  overflow: hidden;
+}
+.jobs-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.jobs-panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.jobs-panel-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-primary) 22%, transparent);
+  color: var(--text-primary);
+}
+.jobs-panel-chevron {
+  margin-left: auto;
+  display: flex;
+  transition: transform 0.2s ease;
+}
+.jobs-panel-chevron.collapsed { transform: rotate(180deg); }
+.jobs-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+}
+.jobs-panel-mini { padding: 8px 12px 10px; font-size: 11.5px; color: var(--text-secondary); }
+.jobs-panel-mini-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.jobs-panel-mini-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.import-job-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius-md, 10px);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+}
+.import-job-card.is-error { border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+.import-job-card.is-done { border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+.import-job-header { display: flex; align-items: center; gap: 8px; }
+.import-job-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--accent-gradient);
+  color: white;
+}
+.import-job-icon.done { background: var(--success); color: #06281b; }
+.import-job-icon.error { background: var(--danger); color: #3a0b0b; }
+.import-job-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-job-elapsed { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.import-job-x {
+  display: flex;
+  background: none;
+  border: none;
+  padding: 2px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.import-job-x:hover { color: var(--text-primary); }
+.import-job-result { font-size: 12px; color: var(--text-secondary); }
+.import-job-error { font-size: 12px; color: var(--danger); white-space: pre-line; word-break: break-word; }
+.import-job-warnings { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #fbbf24; }
+.import-job-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.import-job-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.import-job-link:hover { color: var(--text-primary); }
+.import-job-open { padding: 6px 12px; font-size: 12px; }
+.import-job-log {
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+.import-job-hint { font-size: 11.5px; color: var(--text-muted); margin: 10px 0 0; }

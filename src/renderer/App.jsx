@@ -14,6 +14,7 @@ import SettingsModal from './components/SettingsModal.jsx';
 import TermsModal from './components/TermsModal.jsx';
 import ToastContainer from './components/ToastContainer.jsx';
 import InstallProgressToast from './components/InstallProgressToast.jsx';
+import ImportJobsPanel from './components/ImportJobsPanel.jsx';
 import UpdateToast from './components/UpdateToast.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { useAppStore } from './store.js';
@@ -150,6 +151,7 @@ export default function App() {
       <TitleBar />
       <ToastContainer />
       <InstallProgressToast />
+      <ImportJobsPanel />
       <UpdateToast />
       <div className="app-shell">
         <Sidebar />

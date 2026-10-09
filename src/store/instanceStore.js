@@ -1031,6 +1031,7 @@ module.exports = {
   deleteScreenshot,
   showScreenshotInFolder,
   readImageAsDataUrl,
+  resolveInstancePath,
   listInstanceFiles,
   createInstanceFolder,
   renameInstancePath,

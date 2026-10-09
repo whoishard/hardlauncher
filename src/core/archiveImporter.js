@@ -181,8 +181,9 @@ async function importCurseForgeModpack(zip, info, instanceName, onProgress) {
     async (f) => {
       try {
         await downloadCurseForgeFile(f.projectID, f.fileID, path.join(instance.dir, 'mods'));
-      } catch {
+      } catch (e) {
         failed.push(`${f.projectID}/${f.fileID}`);
+        onProgress?.({ stage: 'warning', message: `No se pudo descargar el archivo ${f.projectID}/${f.fileID}: ${e.message}` });
       }
     },
     6,
